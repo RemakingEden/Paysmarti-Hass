@@ -2,27 +2,34 @@
 
 Licensed under the [MIT License](LICENSE).
 
-Book a Paysmarti visitor parking session from a dedicated Home Assistant dashboard card. The integration supports saved registrations and new registrations, with optional saving when enabled in its options. It shows a confirmed receipt, a known failure, or an uncertain outcome. An uncertain outcome requires checking Paysmarti before another booking.
+Book one visitor vehicle for the current day from Home Assistant. Choose a saved registration or enter a new one; you can also save a new registration with a nickname. The booking starts immediately and runs until 23:59.
 
-This integration follows the observed Paysmarti browser flow. Site changes may interrupt bookings. Use it with an account and visitor permit you control.
+![Paysmarti Visitor card with a saved registration dropdown, new registration input, and Book button](docs/images/paysmarti-visitor-card.png)
 
-## Install on your Home Assistant server
+The integration uses the Leeds City Council visitor flow on Paysmarti. You need a Paysmarti visitor account and permit that you control. It books one vehicle at a time.
 
-**Public repository URL:** `https://github.com/RemakingEden/Paysmarti-Hass`. The repository must be public for Marketplace custom-repository installation. Published releases use the same version as the integration manifest, so Marketplace can show versioned updates. There is no separate card download or file copy.
+## Install
 
-1. On your Home Assistant **server**, install and open Home Assistant Marketplace (formerly HACS). In **Custom repositories**, add the published repository URL above as an **Integration** repository.
-2. Find **Paysmarti Visitor** in Marketplace, download it, and restart Home Assistant. The integration package includes the dashboard card JavaScript.
-3. Go to **Settings → Devices & services → Add integration**, search for **Paysmarti Visitor**, and complete the config flow with your Paysmarti account. Select the intended permit and street when prompted.
-4. Edit the desired dashboard, select **Add card**, search for **Paysmarti Visitor**, and select it. Home Assistant loads the bundled card as a dashboard resource automatically. After updating the integration, restart Home Assistant and refresh the browser before opening the card picker.
+1. In Home Assistant, install **Home Assistant Marketplace** (formerly HACS) if you do not already have it.
+2. In Marketplace, add `https://github.com/RemakingEden/Paysmarti-Hass` under **Custom repositories** with type **Integration**.
+3. Find **Paysmarti Visitor** in Marketplace and download it. Restart Home Assistant.
+4. Open **Settings → Devices & services → Add integration**, search for **Paysmarti Visitor**, and sign in with your Paysmarti account. Choose your visitor permit and street if prompted.
+5. Edit the dashboard where you want the booking control. Select **Add card**, search for **Paysmarti Visitor**, and add it. The card is included with the integration; there is no separate card download or resource setup for a normal Home Assistant dashboard.
 
-If you manage dashboard resources in YAML, add `/api/paysmarti_visitor/paysmarti-visitor-card.js` as a JavaScript module yourself. If you have more than one Paysmarti account configured, use a **Manual** card and provide the chosen account's config entry ID:
+If the card does not appear after installation, refresh your browser. If you manage dashboard resources in YAML, add `/api/paysmarti_visitor/paysmarti-visitor-card.js` as a JavaScript module yourself.
+
+## Use the card
+
+- Select a car in **Saved registration**, or type its plate into **New registration**. Typed text takes priority if both fields have values. Check **Effective registration** before booking.
+- To save a new plate, open **Settings → Devices & services → Paysmarti Visitor → Configure** and enable **Allow saving a new vehicle**. Then type a new plate in the card, tick **Save this registration**, and optionally enter a nickname. Saving is off by default. A live save with a nickname has been reported successful.
+- Select **Book** once. A confirmed booking shows **Booked** with the registration and parking times. **Not booked** means the final booking was not completed. If the card shows **Outcome unknown**, check Paysmarti before trying again: the request may already have succeeded.
+
+For more than one configured Paysmarti account, add a **Manual** card and provide the chosen account's config entry ID:
 
 ```yaml
 type: custom:paysmarti-visitor-card
 config_entry_id: YOUR_CONFIG_ENTRY_ID
 ```
-
-The card loads saved registrations when opened. Entering nonempty new text overrides the saved dropdown; the effective registration appears above **Book**. The **Save this registration** checkbox appears only when a new registration is entered and **Enable saving new registrations** is turned on in integration options. Selecting it reveals an optional nickname field. Saving is off by default. Check the effective registration before selecting **Book**. A user has reported a successful live booking while saving a new registration with a nickname.
 
 **Action permissions:** Anyone in Home Assistant who can run the `paysmarti_visitor.book_visitor` action for this config entry can create a real permit booking, including from the Actions interface without the card. Restrict access to trusted Home Assistant users and automations. The card does not store a typed registration in an entity state or browser storage. The integration stores a masked last attempt and leaves its persistent notification until dismissed. The card's **Dismiss** button hides the result only in the current card instance; reopening the card restores the backend result, and the Home Assistant notification remains until dismissed separately.
 
