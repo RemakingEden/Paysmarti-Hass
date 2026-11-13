@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from .const import LOGIN_HOST, VISITOR_HOST
 from .forms import parse_form
-from .models import AuthenticationFailed, InteractiveChallenge, UnexpectedRedirect
+from .models import AuthenticationFailed, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
 
 LOGIN_URL = f"https://{LOGIN_HOST}/login/LeedsCC/Home"
 VISITOR_URL = f"https://{VISITOR_HOST}/LeedsCC/BookParking/SelectPermit"
@@ -88,6 +88,12 @@ class PaysmartiAuthenticator:
                 raise AuthenticationFailed("Login did not establish a session")
             if visitor and (urlsplit(url).hostname != VISITOR_HOST or urlsplit(url).path != urlsplit(VISITOR_URL).path):
                 raise AuthenticationFailed("Visitor session was not established")
+            if visitor:
+                try:
+                    permit_form = parse_form(html, "/LeedsCC/BookParking/StepOne")
+                except UnexpectedPage as exc:
+                    raise AuthenticationFailed("Visitor permit form unavailable") from exc
+                self._trusted(url, permit_form.action)
             return
         raise AuthenticationFailed("Authentication handoff exceeded redirect limit")
 

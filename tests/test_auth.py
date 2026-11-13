@@ -3,10 +3,12 @@
 import asyncio
 from collections import deque
 from functools import wraps
+from pathlib import Path
 
 import pytest
 
 from custom_components.paysmarti_visitor.auth import PaysmartiAuthenticator
+from custom_components.paysmarti_visitor.const import ALLOWED_HOSTS
 from custom_components.paysmarti_visitor.models import (
     AuthenticationFailed,
     InteractiveChallenge,
@@ -16,9 +18,10 @@ from custom_components.paysmarti_visitor.models import (
 
 LOGIN = "https://permits.paysmarti.co.uk/login/LeedsCC/Home"
 VISITOR = "https://visitor.paysmarti.co.uk/LeedsCC/BookParking/SelectPermit"
-ACCOUNT = "https://account.paysmarti.co.uk/session"
-IDP = "https://identity.paysmarti.co.uk/sso"
-HOSTS = {"permits.paysmarti.co.uk", "visitor.paysmarti.co.uk", "account.paysmarti.co.uk", "identity.paysmarti.co.uk"}
+ACCOUNT = "https://permits.paysmarti.co.uk/session"
+IDP = "https://permits.paysmarti.co.uk/sso"
+HOSTS = ALLOWED_HOSTS
+PERMIT_HTML = (Path(__file__).parent / "fixtures" / "permit.html").read_text()
 
 
 def async_test(test):
@@ -31,7 +34,7 @@ LOGIN_HTML = '''<form action="/login/LeedsCC/Home" method="post">
 <input name="__RequestVerificationToken" value="fresh-token">
 <input name="returnUrl" value="/home"><input name="email"><input name="password" type="password">
 </form>'''
-FEDERATION = '''<form method="post" action="https://account.paysmarti.co.uk/session">
+FEDERATION = '''<form method="post" action="https://permits.paysmarti.co.uk/session">
 <input name="wa" value="wsignin1.0"><input name="wresult" value="sanitized-ticket">
 <input name="wctx" value="sanitized-context"></form>'''
 VISITOR_FEDERATION = '''<form method="post" action="https://visitor.paysmarti.co.uk/LeedsCC/signin">
@@ -65,7 +68,7 @@ class Request:
         assert (self.method, self.url) == (expected_method, expected_url)
         assert self.allow_redirects is False
         assert 0 < self.timeout <= 30
-        if self.method == "GET" and self.url == VISITOR and "Select visitor permit" in response.body:
+        if self.method == "GET" and self.url == VISITOR and response.body == PERMIT_HTML:
             assert self.transport.cookies.get("visitor-session") == "fresh-cookie"
         if response.set_cookie:
             self.transport.cookies[response.set_cookie[0]] = response.set_cookie[1]
@@ -96,11 +99,11 @@ def successful_login_steps():
         step("POST", LOGIN, status=302, location=IDP),
         step("GET", IDP, body=FEDERATION),
         step("POST", ACCOUNT, status=302, location="/home"),
-        step("GET", "https://account.paysmarti.co.uk/home", body="Account home"),
+        step("GET", "https://permits.paysmarti.co.uk/home", body="Account home"),
         step("GET", VISITOR, status=302, location=IDP),
         step("GET", IDP, body=VISITOR_FEDERATION),
         step("POST", "https://visitor.paysmarti.co.uk/LeedsCC/signin", status=302, location="/LeedsCC/BookParking/SelectPermit", set_cookie=("visitor-session", "fresh-cookie")),
-        step("GET", VISITOR, body="<h1>Select visitor permit</h1>"),
+        step("GET", VISITOR, body=PERMIT_HTML),
     ]
 
 
@@ -118,6 +121,19 @@ async def test_login_posts_fresh_form_and_completes_account_and_visitor_handoffs
     assert session.calls[3][2]["wresult"] == "sanitized-ticket"
     assert session.calls[7][2]["wresult"] == "fresh-visitor-ticket"
     assert session.cookies["visitor-session"] == "fresh-cookie"
+
+
+@async_test
+async def test_visitor_200_error_page_is_not_an_authenticated_session():
+    steps = successful_login_steps()
+    steps[-1] = step("GET", VISITOR, body="<h1>Service unavailable</h1>")
+    session = Session(*steps)
+
+    with pytest.raises(AuthenticationFailed):
+        await PaysmartiAuthenticator(session, HOSTS).login("user@example.test", "secret")
+
+    assert not session.queue
+    assert all("StepOne" not in url and "StepTwo" not in url for _, url, _ in session.calls)
 
 
 @async_test
@@ -157,7 +173,7 @@ async def test_interactive_challenge_stops_before_booking(challenge):
     assert [url for _, url, _ in session.calls] == [LOGIN, LOGIN]
 
 
-@pytest.mark.parametrize("location", ["https://evil.test/steal", "http://account.paysmarti.co.uk/session", "//evil.test/steal"])
+@pytest.mark.parametrize("location", ["https://evil.test/steal", "http://permits.paysmarti.co.uk/session", "//evil.test/steal"])
 @async_test
 async def test_rejects_unrecognized_or_non_https_redirect_without_following(location):
     session = Session(step("GET", LOGIN, body=LOGIN_HTML), step("POST", LOGIN, status=302, location=location))
@@ -170,7 +186,7 @@ async def test_rejects_unrecognized_or_non_https_redirect_without_following(loca
 
 @async_test
 async def test_rejects_unrecognized_federation_form_target():
-    bad_form = FEDERATION.replace("account.paysmarti.co.uk", "evil.test")
+    bad_form = FEDERATION.replace("permits.paysmarti.co.uk", "evil.test")
     session = Session(step("GET", LOGIN, body=LOGIN_HTML), step("POST", LOGIN, status=302, location=IDP), step("GET", IDP, body=bad_form))
 
     with pytest.raises(UnexpectedRedirect):
