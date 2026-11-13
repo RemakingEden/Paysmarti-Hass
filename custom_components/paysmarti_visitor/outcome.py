@@ -1,19 +1,24 @@
 """Durable, redacted booking outcomes and persistent notifications."""
 
+import asyncio
+import json
 import logging
 import re
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
 from homeassistant.components import persistent_notification
+from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.storage import Store
 
 _LOGGER = logging.getLogger(__name__)
 _FINAL = ("booked", "not_booked", "outcome_unknown")
 _DETAIL_KEYS = frozenset({"stage", "error_code", "starts_at", "ends_at"})
-_MASKED = re.compile(r"[A-Z0-9*]{2,12}\Z")
+_MASKED = re.compile(r"\*+[A-Z0-9]{0,3}\Z")
 _STAGES = frozenset({
     "authentication", "permit", "street", "vehicle", "booking", "summary", "prompt",
     "prepare", "preparation", "commit", "success", "notification",
@@ -36,6 +41,7 @@ class Attempt:
     status: Literal["preparing", "commit_started", "booked", "not_booked", "outcome_unknown"]
     safe_details: dict[str, str]
     notification_pending: bool = False
+    notification_dismissed: bool = False
 
     @property
     def notification_id(self) -> str:
@@ -43,8 +49,17 @@ class Attempt:
 
 
 def _validate_mask(mask: str) -> None:
-    if not _MASKED.fullmatch(mask) or "*" not in mask or sum(char != "*" for char in mask) > 4:
+    if not isinstance(mask, str) or len(mask) > 10 or not _MASKED.fullmatch(mask):
         raise ValueError("Registration must be masked before journaling")
+
+
+def mask_registration(registration: str) -> str:
+    """Hide at least one character of a normalized 1–10 character plate."""
+    normalized = re.sub(r"\s+", "", registration).upper()
+    if not re.fullmatch(r"[A-Z0-9]{1,10}", normalized):
+        raise ValueError("Invalid registration")
+    visible = min(3, len(normalized) - 1)
+    return "*" * (len(normalized) - visible) + (normalized[-visible:] if visible else "")
 
 
 def _validate_details(details: dict[str, str]) -> None:
@@ -60,6 +75,15 @@ def _validate_details(details: dict[str, str]) -> None:
                 datetime.fromisoformat(value)
             except ValueError as exc:
                 raise ValueError("Attempt time must be ISO formatted") from exc
+
+
+def _validate_booked_times(details: dict[str, str]) -> None:
+    if not {"starts_at", "ends_at"}.issubset(details):
+        raise ValueError("Booked outcome requires verified start and end times")
+    start = datetime.fromisoformat(details["starts_at"])
+    end = datetime.fromisoformat(details["ends_at"])
+    if start.tzinfo is None or end.tzinfo is None or end <= start:
+        raise ValueError("Booked outcome requires ordered timezone-aware times")
 
 
 def _message(attempt: Attempt) -> str:
@@ -87,15 +111,57 @@ class AttemptJournal:
 
     def __init__(self, hass, entry_id: str, *, store=None, notify=None) -> None:
         self._hass = hass
-        self._store = store if store is not None else Store(hass, 1, f"paysmarti_visitor.{entry_id}.last_attempt")
+        self._store = store if store is not None else Store(
+            hass, 1, f"paysmarti_visitor.{entry_id}.last_attempt", atomic_writes=True
+        )
         self._notify = notify if notify is not None else persistent_notification.async_create
+        self._unsub_notification = None
+        if hasattr(hass, "data") and hasattr(hass, "async_create_task"):
+            self._unsub_notification = async_dispatcher_connect(
+                hass, persistent_notification.SIGNAL_PERSISTENT_NOTIFICATIONS_UPDATED,
+                self._on_notification_update,
+            )
+
+    def close(self) -> None:
+        """Stop watching dismissals when the config entry unloads."""
+        if self._unsub_notification is not None:
+            self._unsub_notification()
+            self._unsub_notification = None
+
+    @callback
+    def _on_notification_update(self, update_type, notifications) -> None:
+        if update_type == persistent_notification.UpdateType.REMOVED:
+            self._hass.async_create_task(self._record_dismissal(frozenset(notifications)))
+
+    async def _record_dismissal(self, notification_ids: frozenset[str]) -> None:
+        current = await self.last()
+        if (current is None or current.notification_id not in notification_ids
+                or current.status not in _FINAL or current.notification_dismissed):
+            return
+        try:
+            await self._save(replace(current, notification_dismissed=True,
+                                     notification_pending=False))
+        except OSError:
+            _LOGGER.warning("Could not record booking notification dismissal")
 
     async def last(self) -> Attempt | None:
         data = await self._store.async_load()
         return Attempt(**data) if data is not None else None
 
     async def _save(self, attempt: Attempt) -> None:
-        await self._store.async_save(asdict(attempt))
+        expected = asdict(attempt)
+        await self._store.async_save(expected)
+        # Store.async_save can log and swallow WriteError, or defer a write while
+        # Core is stopping. Store.async_load can then return pending memory data.
+        # Only the physical file is evidence that the commit boundary survived.
+        try:
+            actual = await asyncio.to_thread(
+                lambda: json.loads(Path(self._store.path).read_text(encoding="utf-8"))["data"]
+            )
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise OSError("Attempt state was not durably written") from exc
+        if actual != expected:
+            raise OSError("Attempt state was not durably written")
 
     def _update_notification(self, attempt: Attempt) -> None:
         self._notify(self._hass, _message(attempt), title="Paysmarti visitor booking",
@@ -134,6 +200,8 @@ class AttemptJournal:
         if status not in _FINAL:
             raise ValueError("Invalid final status")
         _validate_details(safe_details)
+        if status == "booked":
+            _validate_booked_times(safe_details)
         current = await self.last()
         if current is None or current.id != attempt_id:
             raise ValueError("Attempt not found")
@@ -159,9 +227,12 @@ class AttemptJournal:
         elif current.status == "commit_started":
             await self.finish(current.id, "outcome_unknown",
                               {"stage": "commit", "error_code": "interrupted_after_commit"})
-        elif current.notification_pending:
+        elif not current.notification_dismissed:
             try:
-                await self._notify_and_clear(current)
+                if current.notification_pending:
+                    await self._notify_and_clear(current)
+                else:
+                    self._update_notification(current)
             except Exception:
                 _LOGGER.warning("Could not restore booking attempt notification")
         return await self.last()

@@ -2,17 +2,25 @@
 
 import asyncio
 import copy
+import json
+import tempfile
+from pathlib import Path
 
 import pytest
+from homeassistant.components import persistent_notification
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from custom_components.paysmarti_visitor.outcome import AttemptJournal
+from custom_components.paysmarti_visitor.outcome import AttemptJournal, mask_registration
 
 
 class MemoryStore:
     def __init__(self, events=None):
         self.data = None
         self.fail_save = False
+        self.silent_fail = False
         self.events = events if events is not None else []
+        self._directory = tempfile.TemporaryDirectory()
+        self.path = Path(self._directory.name) / "attempt.json"
 
     async def async_load(self):
         return copy.deepcopy(self.data)
@@ -22,6 +30,8 @@ class MemoryStore:
         if self.fail_save:
             raise OSError("storage unavailable")
         self.data = copy.deepcopy(data)
+        if not self.silent_fail:
+            self.path.write_text(json.dumps({"version": 1, "key": "attempt", "data": data}))
 
 
 class Notifications:
@@ -67,11 +77,14 @@ def test_finish_updates_same_notification_and_reloads_last_result(status, phrase
     attempt = run(first.begin("***AAA"))
     if status != "not_booked":
         run(first.mark_commit_started(attempt.id))
-    run(first.finish(attempt.id, status, {"stage": "booking", "error_code": "form_changed"}))
+    details = {"stage": "booking", "error_code": "form_changed"}
+    if status == "booked":
+        details.update({"starts_at": "2026-11-13T10:05:00+00:00", "ends_at": "2026-11-13T23:59:00+00:00"})
+    run(first.finish(attempt.id, status, details))
     restored = run(journal(store, notices).last())
     assert restored.status == status
     assert restored.masked_registration == "***AAA"
-    assert restored.safe_details == {"stage": "booking", "error_code": "form_changed"}
+    assert restored.safe_details == details
     assert len(notices.items) == 1
     assert phrase in next(iter(notices.items.values()))[1]
 
@@ -98,6 +111,20 @@ def test_commit_start_save_failure_does_not_return_commit_authority():
     with pytest.raises(OSError):
         run(attempts.mark_commit_started(attempt.id))
     assert store.data["status"] == "preparing"
+
+
+def test_silent_store_write_failure_blocks_begin_and_commit():
+    store = MemoryStore()
+    store.silent_fail = True
+    with pytest.raises(OSError):
+        run(journal(store).begin("***AAA"))
+    store.silent_fail = False
+    attempts = journal(store)
+    attempt = run(attempts.begin("***AAA"))
+    store.silent_fail = True
+    with pytest.raises(OSError):
+        run(attempts.mark_commit_started(attempt.id))
+    assert json.loads(store.path.read_text())["data"]["status"] == "preparing"
 
 
 def test_startup_recovery_distinguishes_pre_commit_and_uncertain_submission():
@@ -144,11 +171,67 @@ def test_final_notification_failure_preserves_stored_outcome_for_retry():
     assert "Not booked" in next(iter(notices.items.values()))[1]
 
 
-def test_dismissed_final_notification_is_not_recreated_on_restart():
+def test_completed_notification_is_restored_after_restart():
     store, notices = MemoryStore(), Notifications()
     attempts = journal(store, notices)
     attempt = run(attempts.begin("***AAA"))
     run(attempts.finish(attempt.id, "not_booked", {"stage": "prepare"}))
     notices.items.clear()
     run(journal(store, notices).recover_on_startup())
-    assert notices.items == {}
+    assert "Not booked" in next(iter(notices.items.values()))[1]
+
+
+def test_dismissed_completed_notification_stays_dismissed_after_restart():
+    class FakeHass:
+        def __init__(self):
+            self.data = {}
+            self.tasks = []
+
+        def verify_event_loop_thread(self, *_):
+            pass
+
+        def async_create_task(self, coro, **_):
+            task = asyncio.create_task(coro)
+            self.tasks.append(task)
+            return task
+
+    async def scenario():
+        hass, store, notices = FakeHass(), MemoryStore(), Notifications()
+        attempts = AttemptJournal(hass, "entry-1", store=store, notify=notices)
+        attempt = await attempts.begin("***AAA")
+        await attempts.finish(attempt.id, "not_booked", {"stage": "prepare"})
+        notices.items.clear()
+        async_dispatcher_send(hass, persistent_notification.SIGNAL_PERSISTENT_NOTIFICATIONS_UPDATED,
+                              persistent_notification.UpdateType.REMOVED,
+                              {attempt.notification_id: {"notification_id": attempt.notification_id}})
+        await asyncio.gather(*hass.tasks)
+        assert store.data["notification_dismissed"] is True
+        await AttemptJournal(hass, "entry-1", store=store, notify=notices).recover_on_startup()
+        assert notices.items == {}
+        attempts.close()
+
+    run(scenario())
+
+
+def test_booked_requires_verified_times_and_shows_them():
+    store, notices = MemoryStore(), Notifications()
+    attempts = journal(store, notices)
+    attempt = run(attempts.begin("***AAA"))
+    run(attempts.mark_commit_started(attempt.id))
+    with pytest.raises(ValueError):
+        run(attempts.finish(attempt.id, "booked", {}))
+    run(attempts.finish(attempt.id, "booked", {
+        "starts_at": "2026-11-13T10:05:00+00:00",
+        "ends_at": "2026-11-13T23:59:00+00:00",
+    }))
+    message = next(iter(notices.items.values()))[1]
+    assert "10:05" in message and "23:59" in message
+
+
+@pytest.mark.parametrize("registration", ["A", "AB", "AB12", "AB12C", "AB12CDE", "ABCDEFGHIJ"])
+def test_mask_registration_hides_at_least_one_real_character(registration):
+    masked = mask_registration(registration)
+    assert masked != registration
+    assert len(masked) == len(registration)
+    assert "*" in masked
+    assert sum(a != b for a, b in zip(masked, registration)) >= 1

@@ -17,3 +17,13 @@ The async `AttemptJournal` methods are `begin`, `mark_commit_started`, `finish`,
 The action must `await journal.begin(masked_registration)` before it may approach final submission, then `await journal.mark_commit_started(attempt.id)` immediately before `booker.commit(prepared)`. Either exception prevents the final POST. After a known pre-commit failure call `finish(..., "not_booked", ...)`; after commit starts, use `booked` or `outcome_unknown` only. `safe_details` accepts `stage`, `error_code`, `starts_at`, and `ends_at`, with stage/error values from the allowlists in `outcome.py`; unknown site error categories should be mapped to `form_changed` or another approved category. Call `recover_on_startup()` during setup. Notification update failure after a saved final outcome is logged and retried on startup; it never triggers a booking retry. Service wiring is Task 8's scope.
 
 No live requests or bookings were made.
+
+## Review fixes
+
+Home Assistant 2026.11 `Store.async_save` catches and logs `WriteError` without raising, and during Core shutdown it defers writing until a final-write event. `Store.async_load` can also return pending in-memory data. The journal now uses `atomic_writes=True` and reads the physical `.storage` JSON after every save, comparing the complete attempt record. A missing, malformed, or stale file raises `OSError`; therefore `begin` and `mark_commit_started` cannot authorize the final POST after a silent write failure or deferred write. A Store-like silent-write fake covers this path.
+
+The journal now provides `mask_registration(full_registration)`, which normalizes a 1–10 character plate and masks at least one real character, and `begin` accepts only that prefix-mask shape. A `booked` outcome requires ordered, timezone-aware `starts_at` and `ends_at` values; the notification displays them.
+
+Home Assistant persistent notifications are memory-only. Startup recreates the latest undismissed completed notification. A dispatcher listener records a dismissal tombstone in the same durable attempt record; startup leaves a dismissed completed notification hidden. The action owner should call `journal.close()` on config entry unload to remove the listener. Since only the latest attempt is retained by design, notifications from older attempts cannot be restored after Core restart.
+
+Review-fix TDD evidence: new tests first failed for missing `mask_registration`, unverified silent writes, missing booked-time validation, and missing dismissal state. Final `.venv-ha/bin/pytest tests/test_outcome.py -q`: **19 passed**. Final `.venv-ha/bin/pytest -q`: **123 passed**. Both runs show one Home Assistant dependency deprecation warning.
