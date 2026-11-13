@@ -378,3 +378,40 @@ async def test_actions_are_registered_with_entry_target_and_response():
     assert (await registered["get_last_result"][0](call))["status"] == "none"
     with pytest.raises(ServiceValidationError):
         await registered["get_last_result"][0](SimpleNamespace(data={"config_entry_id": "other"}))
+
+
+@pytest.mark.asyncio
+async def test_single_account_actions_accept_omitted_entry_id():
+    from custom_components.paysmarti_visitor.services import async_register_services
+
+    registered = {}
+    def register(domain, name, handler, *, schema, supports_response):
+        registered[name] = (handler, schema)
+    state = runtime()
+    hass = SimpleNamespace(
+        services=SimpleNamespace(async_register=register),
+        config_entries=SimpleNamespace(async_entries=lambda domain: [state.entry],
+                                       async_get_entry=lambda entry_id: state.entry if entry_id == "one" else None),
+    )
+    await async_register_services(hass)
+    handler, schema = registered["get_last_result"]
+    assert (await handler(SimpleNamespace(data=schema({}))))["status"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_omitted_entry_id_rejects_multiple_accounts():
+    from custom_components.paysmarti_visitor.services import async_register_services
+
+    registered = {}
+    def register(domain, name, handler, *, schema, supports_response):
+        registered[name] = (handler, schema)
+    first, second = runtime(), runtime()
+    hass = SimpleNamespace(
+        services=SimpleNamespace(async_register=register),
+        config_entries=SimpleNamespace(async_entries=lambda domain: [first.entry, second.entry],
+                                       async_get_entry=lambda entry_id: None),
+    )
+    await async_register_services(hass)
+    handler, schema = registered["get_last_result"]
+    with pytest.raises(ServiceValidationError):
+        await handler(SimpleNamespace(data=schema({})))

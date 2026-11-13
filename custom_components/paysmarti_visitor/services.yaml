@@ -3,7 +3,7 @@ list_saved_registrations:
   description: Refresh saved vehicles for a Paysmarti account.
   fields:
     config_entry_id:
-      required: true
+      required: false
       selector:
         config_entry:
           integration: paysmarti_visitor
@@ -12,7 +12,7 @@ book_visitor:
   description: Submit a visitor booking after checking the current form.
   fields:
     config_entry_id:
-      required: true
+      required: false
       selector:
         config_entry:
           integration: paysmarti_visitor
@@ -33,7 +33,7 @@ get_last_result:
   description: Show the last redacted booking outcome.
   fields:
     config_entry_id:
-      required: true
+      required: false
       selector:
         config_entry:
           integration: paysmarti_visitor

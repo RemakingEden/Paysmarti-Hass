@@ -12,14 +12,15 @@ This integration follows the observed Paysmarti browser flow. Site changes may i
 
 1. On your Home Assistant **server**, install and open Home Assistant Marketplace (formerly HACS). In **Custom repositories**, add the published repository URL above as an **Integration** repository.
 2. Find **Paysmarti Visitor** in Marketplace, download it, and restart Home Assistant. The integration package includes the dashboard card JavaScript.
-3. Go to **Settings → Devices & services → Add integration**, search for **Paysmarti Visitor**, and complete the config flow with your Paysmarti account. Select the intended permit and street when prompted. Copy the integration's **config entry ID** from the entry URL/details for the card configuration.
-4. Add a dashboard resource in **Settings → Dashboards → Resources** (enable advanced mode if Resources is hidden): URL `/api/paysmarti_visitor/paysmarti-visitor-card.js`, type **JavaScript module**. Register it once for the dashboard, then reload the browser page.
-5. Edit the desired dashboard and add a **Manual** card:
+3. Go to **Settings → Devices & services → Add integration**, search for **Paysmarti Visitor**, and complete the config flow with your Paysmarti account. Select the intended permit and street when prompted.
+4. Edit the desired dashboard, select **Add card**, search for **Paysmarti Visitor**, and select it. Home Assistant loads the bundled card as a dashboard resource automatically. After updating the integration, restart Home Assistant and refresh the browser before opening the card picker.
 
-   ```yaml
-   type: custom:paysmarti-visitor-card
-   config_entry_id: YOUR_CONFIG_ENTRY_ID
-   ```
+If you manage dashboard resources in YAML, add `/api/paysmarti_visitor/paysmarti-visitor-card.js` as a JavaScript module yourself. If you have more than one Paysmarti account configured, use a **Manual** card and provide the chosen account's config entry ID:
+
+```yaml
+type: custom:paysmarti-visitor-card
+config_entry_id: YOUR_CONFIG_ENTRY_ID
+```
 
 The card loads saved registrations when opened. Entering nonempty new text overrides the saved dropdown; the effective registration appears above **Book**. The Save checkbox appears only when a new registration is entered and **Enable saving new registrations** is turned on in integration options. Saving is off by default. **The Save with nickname path has not been verified against the live Paysmarti site.** Enable it only for the controlled one-booking test below; the card labels it unverified. Check the effective registration before selecting **Book**.
 

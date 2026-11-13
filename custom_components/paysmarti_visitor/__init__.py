@@ -1,6 +1,7 @@
 """Home Assistant lifecycle for the Paysmarti visitor account."""
 
 import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,24 @@ from .session import create_paysmarti_session
 
 
 CONFIG_SCHEMA = vol.Schema({}, extra=vol.ALLOW_EXTRA)
+CARD_URL = "/api/paysmarti_visitor/paysmarti-visitor-card.js"
+
+
+async def _register_dashboard_resource(hass: HomeAssistant) -> None:
+    """Make the card available in the picker when dashboards use UI resources."""
+    lovelace = hass.data.get("lovelace") if hasattr(hass, "data") else None
+    if lovelace is None or lovelace.resource_mode != "storage":
+        return
+    resources = lovelace.resources
+    await resources.async_get_info()  # Ensure the collection is loaded before reading or writing.
+    version = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+    url = f"{CARD_URL}?v={version}"
+    for item in resources.async_items():
+        if item.get("url", "").split("?", 1)[0] == CARD_URL:
+            if item["url"] != url or item.get("res_type") != "module":
+                await resources.async_update_item(item["id"], {"url": url, "res_type": "module"})
+            return
+    await resources.async_create_item({"url": url, "res_type": "module"})
 
 
 @dataclass
@@ -73,10 +92,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Install entry-targeted actions once for the integration domain."""
     await async_register_services(hass)
     await hass.http.async_register_static_paths([StaticPathConfig(
-        "/api/paysmarti_visitor/paysmarti-visitor-card.js",
+        CARD_URL,
         str(Path(__file__).parent / "frontend" / "paysmarti-visitor-card.js"),
         cache_headers=False,
     )])
+    await _register_dashboard_resource(hass)
     return True
 
 

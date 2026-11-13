@@ -161,7 +161,12 @@ async def get_last_result(state) -> dict:
 async def async_register_services(hass) -> None:
     """Register entry-targeted actions with response support."""
     def state_for(call):
-        entry = hass.config_entries.async_get_entry(call.data["config_entry_id"])
+        entry_id = call.data.get("config_entry_id")
+        if entry_id:
+            entry = hass.config_entries.async_get_entry(entry_id)
+        else:
+            entries = hass.config_entries.async_entries(DOMAIN)
+            entry = entries[0] if len(entries) == 1 else None
         if entry is None or getattr(entry, "runtime_data", None) is None:
             raise _validation("entry_unavailable")
         return entry.runtime_data
@@ -178,7 +183,7 @@ async def async_register_services(hass) -> None:
     async def result_action(call):
         return await get_last_result(state_for(call))
 
-    entry = {vol.Required("config_entry_id"): str}
+    entry = {vol.Optional("config_entry_id"): str}
     hass.services.async_register(DOMAIN, "list_saved_registrations", list_action, schema=vol.Schema(entry), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "book_visitor", book_action, schema=vol.Schema({
         **entry, vol.Optional("saved_vehicle_id"): str, vol.Optional("new_registration"): str,

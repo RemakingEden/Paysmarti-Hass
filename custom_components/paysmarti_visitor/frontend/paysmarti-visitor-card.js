@@ -5,6 +5,8 @@
   const timestamp = value => value ? new Date(value).toLocaleString() : '';
 
   class PaysmartiVisitorCard extends HTMLElement {
+    static getStubConfig() { return {}; }
+
     constructor() {
       super();
       this.attachShadow({mode: 'open'});
@@ -18,11 +20,13 @@
     }
 
     setConfig(config) {
-      if (!config?.config_entry_id || typeof config.config_entry_id !== 'string') {
-        throw new Error('Paysmarti Visitor card requires config_entry_id');
+      if (!config || (config.config_entry_id !== undefined && typeof config.config_entry_id !== 'string')) {
+        throw new Error('Invalid Paysmarti Visitor card configuration');
       }
-      if (this._entryId === config.config_entry_id) return;
-      this._entryId = config.config_entry_id;
+      const entryId = config.config_entry_id || null;
+      if (this._configured && this._entryId === entryId) return;
+      this._configured = true;
+      this._entryId = entryId;
       this._generation += 1;
       this._loadedFor = null;
       this._busy = false;
@@ -50,14 +54,14 @@
     async _action(service, data = {}) {
       const result = await this._hass.callWS({
         type: 'call_service', domain: DOMAIN, service,
-        service_data: {config_entry_id: this._entryId, ...data}, return_response: true,
+        service_data: {...(this._entryId ? {config_entry_id: this._entryId} : {}), ...data}, return_response: true,
       });
       return result.response;
     }
 
     async _load() {
-      if (!this._entryId || !this._hass || this._loadedFor === this._entryId) return;
-      this._loadedFor = this._entryId;
+      if (!this._configured || !this._hass || this._loadedFor === (this._entryId || 'default')) return;
+      this._loadedFor = this._entryId || 'default';
       const generation = this._generation;
       this._loadingInitial = true;
       this._update();
@@ -270,4 +274,14 @@
     }
   }
   customElements.define('paysmarti-visitor-card', PaysmartiVisitorCard);
+  window.customCards = window.customCards || [];
+  if (!window.customCards.some(card => card.type === 'paysmarti-visitor-card')) {
+    window.customCards.push({
+      type: 'paysmarti-visitor-card',
+      name: 'Paysmarti Visitor',
+      description: 'Book a visitor parking session for today.',
+      preview: false,
+      documentationURL: 'https://github.com/RemakingEden/Paysmarti-Hass',
+    });
+  }
 })();

@@ -35,6 +35,23 @@ beforeEach(() => {
   responses = { list_saved_registrations:list, get_last_result:last,
     book_visitor:{registration:'BB00BBB',starts_at:'2026-11-13T10:00:00+00:00',ends_at:'2026-11-13T23:59:00+00:00',reference:'REF1'} };
 });
+test('appears in the card picker and opens with its default configuration', async () => {
+  const pick = window.customCards?.find(item => item.type === 'paysmarti-visitor-card');
+  assert.equal(pick?.name, 'Paysmarti Visitor');
+  const Card = window.customElements.get('paysmarti-visitor-card');
+  const config = Card.getStubConfig();
+  assert.equal(Object.keys(config).length, 0);
+  card = window.document.createElement('paysmarti-visitor-card');
+  card.setConfig(config);
+  window.document.body.append(card);
+  card.hass = {callWS: async request => {
+    calls.push(request);
+    return {response: responses[request.service]};
+  }};
+  await flush(); await flush();
+  assert.match(card.shadowRoot.textContent, /AA00AAA/);
+  assert.equal(calls[0].service_data.config_entry_id, undefined);
+});
 test('new text takes precedence and submits normalized registration via response action', async () => {
   const root = await open();
   change('#saved', 'one', 'change'); change('#new', ' bb 00 bbb ');
