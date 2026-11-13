@@ -23,6 +23,7 @@ If the card does not appear after installation, refresh your browser. If you man
 - Select a car in **Saved registration**, or type its plate into **New registration**. Typed text takes priority if both fields have values. Check **Effective registration** before booking.
 - To save a new plate, open **Settings → Devices & services → Paysmarti Visitor → Configure** and enable **Allow saving a new vehicle**. Then type a new plate in the card, tick **Save this registration**, and optionally enter a nickname. Saving is off by default. A live save with a nickname has been reported successful.
 - Select **Book** once. A confirmed booking shows **Booked** with the registration and parking times. **Not booked** means the final booking was not completed. If the card shows **Outcome unknown**, check Paysmarti before trying again: the request may already have succeeded.
+- The result stays visible across dashboard refreshes until you select **Dismiss**. Dismissal is saved for that attempt, so the result stays hidden afterward. A new booking shows its own result. Booking results do not create system-wide notifications.
 
 For more than one configured Paysmarti account, add a **Manual** card and provide the chosen account's config entry ID:
 
@@ -31,7 +32,7 @@ type: custom:paysmarti-visitor-card
 config_entry_id: YOUR_CONFIG_ENTRY_ID
 ```
 
-**Action permissions:** Anyone in Home Assistant who can run the `paysmarti_visitor.book_visitor` action for this config entry can create a real permit booking, including from the Actions interface without the card. Restrict access to trusted Home Assistant users and automations. The card does not store a typed registration in an entity state or browser storage. The integration stores a masked last attempt and leaves its persistent notification until dismissed. The card's **Dismiss** button hides the result only in the current card instance; reopening the card restores the backend result, and the Home Assistant notification remains until dismissed separately.
+**Action permissions:** Anyone in Home Assistant who can run the `paysmarti_visitor.book_visitor` action for this config entry can create a real permit booking, including from the Actions interface without the card. Restrict access to trusted Home Assistant users and automations. The card does not store a typed registration in an entity state or browser storage. The integration keeps a masked last attempt for recovery and diagnostics, even after you dismiss its card result.
 
 ## Update and troubleshoot
 
@@ -39,7 +40,7 @@ Update **Paysmarti Visitor** under **Settings → Updates** on the Home Assistan
 
 For setup failures, open **Settings → System → Logs**, select **Home Assistant Core**, and search for `paysmarti`. Use **⋮ → Show raw logs** if the condensed view has no match. A failed initial setup has no config entry yet, so its integration debug menu and diagnostics are unavailable. Recent versions log a safe reason for `invalid_auth` without logging the email, password, cookies, tokens, or response body. `invalid_auth` can also mean the site's login flow changed; it does not by itself prove the password is wrong.
 
-For a support report, download the integration's **Diagnostics** from **Settings → Devices & services → Paysmarti Visitor → ⋮ → Download diagnostics**. It contains only version, stage, error code, HTTP status, path without query, form field names, and last attempt status. Review the downloaded file before sharing. If sign-in or discovery fails during startup, Home Assistant may leave the entry unavailable, so the last-result action and diagnostics for that entry may be unavailable until setup succeeds; the recovered persistent notification remains visible. If a maintainer needs a fresh browser-flow capture, reproduce only with a disposable or controlled account and redact credentials, cookies, tokens, full registrations, names, addresses, query strings, and page bodies before sharing; never attach an unredacted HAR or screenshot.
+For a support report, download the integration's **Diagnostics** from **Settings → Devices & services → Paysmarti Visitor → ⋮ → Download diagnostics**. It contains only version, stage, error code, HTTP status, path without query, form field names, and last attempt status. Review the downloaded file before sharing. If sign-in or discovery fails during startup, Home Assistant may leave the entry unavailable, so the card's saved result and diagnostics may be unavailable until setup succeeds. If a maintainer needs a fresh browser-flow capture, reproduce only with a disposable or controlled account and redact credentials, cookies, tokens, full registrations, names, addresses, query strings, and page bodies before sharing; never attach an unredacted HAR or screenshot.
 
 ## Development
 

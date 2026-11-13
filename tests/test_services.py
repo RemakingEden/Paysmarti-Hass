@@ -46,6 +46,12 @@ class Journal:
     async def last(self):
         return self.current
 
+    async def dismiss(self, attempt_id):
+        if self.current is None or self.current.id != attempt_id:
+            return False
+        self.current.card_dismissed = True
+        return True
+
 
 class Booker:
     def __init__(self, *, error=None):
@@ -129,7 +135,7 @@ async def test_new_text_takes_precedence_and_booked_times_are_journaled():
     result = await book_visitor(None, state, saved_vehicle_id="old", new_registration=" bb 00 bbb ")
     assert state.booker.requests[0].new_registration == "BB00BBB"
     assert state.booker.requests[0].saved_vehicle_id is None
-    assert result == {"registration": "BB00BBB", "starts_at": START.isoformat(),
+    assert result == {"attempt_id": "attempt", "registration": "BB00BBB", "starts_at": START.isoformat(),
                       "ends_at": (START + timedelta(days=1)).isoformat(), "reference": "ref"}
     assert state.journal.events[0] == ("begin", "****BBB")
     assert state.journal.events[1] == ("commit_started", "attempt")
@@ -272,6 +278,18 @@ async def test_saved_list_and_last_result(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dismissed_result_is_hidden_until_next_attempt():
+    from custom_components.paysmarti_visitor import services
+
+    state = runtime()
+    await book_visitor(None, state, new_registration="BB00BBB")
+    first = await get_last_result(state)
+    assert first["attempt_id"] == "attempt"
+    assert await services.dismiss_last_result(state, first["attempt_id"]) == {"dismissed": True}
+    assert await get_last_result(state) == {"status": "none"}
+
+
+@pytest.mark.asyncio
 async def test_confirmed_save_refreshes_saved_list(monkeypatch):
     state = runtime(enabled=True)
     calls = []
@@ -372,7 +390,7 @@ async def test_actions_are_registered_with_entry_target_and_response():
         config_entries=SimpleNamespace(async_get_entry=lambda entry_id: state.entry if entry_id == "one" else None),
     )
     assert await async_setup(hass, {})
-    assert set(registered) == {"book_visitor", "list_saved_registrations", "get_last_result"}
+    assert set(registered) == {"book_visitor", "list_saved_registrations", "get_last_result", "dismiss_last_result"}
     assert all(item[2] == SupportsResponse.ONLY for item in registered.values())
     call = SimpleNamespace(data=registered["get_last_result"][1]({"config_entry_id": "one"}))
     assert (await registered["get_last_result"][0](call))["status"] == "none"

@@ -1,5 +1,7 @@
 # Paysmarti visitor booking for Home Assistant
 
+**Implementation update:** The user later asked for card dismissal to persist across refreshes and for system-wide booking notifications to be removed. The current implementation keeps the redacted attempt journal for recovery and diagnostics, shows the result in the card until dismissed, and stores dismissal per attempt. Earlier notification requirements below describe the original design decision.
+
 Date: 13 November 2026  
 Status: Draft for user review
 

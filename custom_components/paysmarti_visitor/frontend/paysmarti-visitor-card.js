@@ -132,7 +132,7 @@
       try {
         const receipt = await this._action('book_visitor', data);
         if (generation !== this._generation) return;
-        this._showResult({status: 'booked', registration: receipt.registration,
+        this._showResult({status: 'booked', attempt_id: receipt.attempt_id, registration: receipt.registration,
           safe_details: {starts_at: receipt.starts_at, ends_at: receipt.ends_at},
           reference: receipt.reference, refresh_warning: receipt.refresh_warning});
         this._new.value = '';
@@ -147,7 +147,8 @@
           this._lastBackendResult = JSON.stringify(latest);
           const unchanged = previousResult !== null && this._lastBackendResult === previousResult;
           this._showResult(unchanged
-            ? {status: 'not_booked', safe_details: {error_code: 'rejected_before_submission'}}
+            ? {status: 'not_booked', attempt_id: latest?.attempt_id,
+                safe_details: {error_code: 'rejected_before_submission'}}
             : latest?.status === 'none' || previousResult === null
               ? {status: 'outcome_unknown'} : latest);
         } catch (_restoreError) {
@@ -167,6 +168,7 @@
       const panel = this._result;
       panel.replaceChildren();
       panel.dataset.kind = result?.status || 'none';
+      panel.dataset.attemptId = result?.attempt_id || '';
       if (!result || result.status === 'none') {
         panel.hidden = true;
         return;
@@ -196,7 +198,30 @@
       dismiss.type = 'button';
       dismiss.setAttribute('aria-label', 'Dismiss booking result');
       dismiss.textContent = 'Dismiss';
-      dismiss.addEventListener('click', () => { panel.hidden = true; });
+      dismiss.addEventListener('click', async () => {
+        if (!result.attempt_id) {
+          panel.hidden = true;
+          return;
+        }
+        dismiss.disabled = true;
+        try {
+          const response = await this._action('dismiss_last_result', {attempt_id: result.attempt_id});
+          if (response?.dismissed !== true) throw new Error('Dismissal was not saved');
+          if (panel.dataset.attemptId === result.attempt_id) panel.hidden = true;
+        } catch (_error) {
+          if (panel.dataset.attemptId === result.attempt_id) {
+            let message = panel.querySelector('#dismiss-error');
+            if (!message) {
+              message = document.createElement('div');
+              message.id = 'dismiss-error';
+              message.setAttribute('role', 'alert');
+              panel.append(message);
+            }
+            message.textContent = 'Could not save the dismissal. Refresh and try again.';
+            dismiss.disabled = false;
+          }
+        }
+      });
       panel.append(heading, detail, dismiss);
     }
 

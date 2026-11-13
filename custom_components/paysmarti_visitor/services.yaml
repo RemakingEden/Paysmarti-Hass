@@ -37,3 +37,16 @@ get_last_result:
       selector:
         config_entry:
           integration: paysmarti_visitor
+dismiss_last_result:
+  name: Dismiss last result
+  description: Hide the named booking result in the card while retaining its redacted audit record.
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: paysmarti_visitor
+    attempt_id:
+      required: true
+      selector:
+        text:

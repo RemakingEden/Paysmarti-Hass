@@ -99,6 +99,19 @@ test('confirmed booking shows green receipt and clears new text', async () => {
   assert.match(root.querySelector('#result').textContent, /BB00BBB/);
   assert.equal(root.querySelector('#new').value, '');
 });
+test('newly booked result can be dismissed durably', async () => {
+  responses.book_visitor = {attempt_id:'new-attempt',registration:'BB00BBB',
+    starts_at:'2026-11-13T10:00:00+00:00',ends_at:'2026-11-13T23:59:00+00:00'};
+  responses.dismiss_last_result = request => {
+    assert.equal(request.service_data.attempt_id, 'new-attempt');
+    return {response:{dismissed:true}};
+  };
+  const root = await open();
+  change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
+  root.querySelector('#dismiss-result').click(); await flush();
+  assert.equal(root.querySelector('#result').hidden, true);
+  assert.equal(calls.filter(x => x.service === 'dismiss_last_result').length, 1);
+});
 test('known pre-commit failure shows red result and keeps entered text', async () => {
   const root = await open();
   responses.book_visitor = () => {
@@ -126,17 +139,29 @@ test('card reopen restores last result from backend', async () => {
   card.remove(); root = await open(); assert.equal(root.querySelector('#result').dataset.kind, 'booked');
   assert.equal(calls.filter(x => x.service === 'get_last_result').length, 2);
 });
-test('result can be dismissed locally and returns on reopen without changing backend', async () => {
-  responses.get_last_result = {status:'outcome_unknown',masked_registration:'****BBB',safe_details:{}};
+test('dismissed result stays hidden after card reopen', async () => {
+  responses.get_last_result = {status:'outcome_unknown',attempt_id:'attempt-one',masked_registration:'****BBB',safe_details:{}};
+  responses.dismiss_last_result = request => {
+    assert.equal(request.service_data.attempt_id, 'attempt-one');
+    responses.get_last_result = {status:'none'};
+    return {response:{dismissed:true}};
+  };
   let root = await open();
   const dismiss = root.querySelector('#dismiss-result');
   assert.equal(dismiss.getAttribute('aria-label'), 'Dismiss booking result');
-  dismiss.click();
+  dismiss.click(); await flush();
   assert.equal(root.querySelector('#result').hidden, true);
-  assert.equal(calls.filter(x => x.service === 'get_last_result').length, 1);
+  assert.equal(calls.filter(x => x.service === 'dismiss_last_result').length, 1);
   card.remove(); root = await open();
-  assert.equal(root.querySelector('#result').dataset.kind, 'outcome_unknown');
+  assert.equal(root.querySelector('#result').hidden, true);
+});
+test('failed dismissal stays visible and explains that it was not saved', async () => {
+  responses.get_last_result = {status:'booked',attempt_id:'attempt-one',masked_registration:'****BBB',safe_details:{}};
+  responses.dismiss_last_result = () => Promise.reject(new Error('storage unavailable'));
+  const root = await open();
+  root.querySelector('#dismiss-result').click(); await flush();
   assert.equal(root.querySelector('#result').hidden, false);
+  assert.match(root.querySelector('#dismiss-error').textContent, /Could not save the dismissal/);
 });
 test('new attempt clears local result dismissal', async () => {
   const root = await open();

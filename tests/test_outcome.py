@@ -354,3 +354,28 @@ def test_mask_registration_hides_at_least_one_real_character(registration):
     assert len(masked) == len(registration)
     assert "*" in masked
     assert sum(a != b for a, b in zip(masked, registration)) >= 1
+
+
+def test_card_dismissal_survives_restart_and_new_attempt_is_visible():
+    store = MemoryStore()
+    first = journal(store)
+    attempt = run(first.begin("***AAA"))
+    run(first.finish(attempt.id, "not_booked", {"stage": "prepare"}))
+    assert run(first.dismiss(attempt.id)) is True
+    assert run(journal(store).last()).card_dismissed is True
+    second = run(journal(store).begin("***BBB"))
+    assert second.card_dismissed is False
+    assert run(journal(store).dismiss(attempt.id)) is False
+    assert run(journal(store).last()).id == second.id
+
+
+def test_normal_journal_does_not_create_system_wide_notification(monkeypatch):
+    notices = []
+    monkeypatch.setattr(persistent_notification, "async_create", lambda *args, **kwargs: notices.append(1))
+    store = MemoryStore()
+    hass = type("FakeHass", (), {"data": {}})()
+    attempts = AttemptJournal(hass, "entry-1", store=store)
+    attempt = run(attempts.begin("***AAA"))
+    run(attempts.finish(attempt.id, "not_booked", {"stage": "prepare"}))
+    run(attempts.recover_on_startup())
+    assert notices == []

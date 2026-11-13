@@ -142,7 +142,7 @@ async def book_visitor(hass, state, *, saved_vehicle_id: str | None = None,
                 refresh_warning = "saved_list_refresh_failed"
             except (aiohttp.ClientError, TimeoutError, OSError):
                 refresh_warning = "saved_list_refresh_failed"
-        result = {"registration": receipt.registration, "starts_at": receipt.starts_at.isoformat(),
+        result = {"attempt_id": attempt.id, "registration": receipt.registration, "starts_at": receipt.starts_at.isoformat(),
                   "ends_at": receipt.ends_at.isoformat(), "reference": receipt.reference}
         if refresh_warning:
             result["refresh_warning"] = refresh_warning
@@ -152,10 +152,17 @@ async def book_visitor(hass, state, *, saved_vehicle_id: str | None = None,
 async def get_last_result(state) -> dict:
     """Return the journal's redacted latest status."""
     attempt = await state.journal.last()
-    if attempt is None:
+    if attempt is None or getattr(attempt, "card_dismissed", False):
         return {"status": "none"}
-    return {"status": attempt.status, "started_at": getattr(attempt, "started_at", None),
+    return {"status": attempt.status, "attempt_id": attempt.id,
+            "started_at": getattr(attempt, "started_at", None),
             "masked_registration": attempt.masked_registration, "safe_details": attempt.safe_details}
+
+
+async def dismiss_last_result(state, attempt_id: str) -> dict:
+    """Persist a card dismissal without clearing the audit journal."""
+    async with state.lock:
+        return {"dismissed": await state.journal.dismiss(attempt_id)}
 
 
 async def async_register_services(hass) -> None:
@@ -183,6 +190,9 @@ async def async_register_services(hass) -> None:
     async def result_action(call):
         return await get_last_result(state_for(call))
 
+    async def dismiss_action(call):
+        return await dismiss_last_result(state_for(call), call.data["attempt_id"])
+
     entry = {vol.Optional("config_entry_id"): str}
     hass.services.async_register(DOMAIN, "list_saved_registrations", list_action, schema=vol.Schema(entry), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "book_visitor", book_action, schema=vol.Schema({
@@ -190,3 +200,6 @@ async def async_register_services(hass) -> None:
         vol.Optional("save", default=False): bool, vol.Optional("nickname"): str,
     }), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "get_last_result", result_action, schema=vol.Schema(entry), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "dismiss_last_result", dismiss_action, schema=vol.Schema({
+        **entry, vol.Required("attempt_id"): str,
+    }), supports_response=SupportsResponse.ONLY)

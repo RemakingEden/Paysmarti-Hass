@@ -1,4 +1,4 @@
-"""Durable, redacted booking outcomes and persistent notifications."""
+"""Durable, redacted booking outcomes."""
 
 import asyncio
 import json
@@ -33,6 +33,10 @@ _ERROR_CODES = frozenset({
 })
 
 
+def _no_notification(*_args, **_kwargs) -> None:
+    """The dashboard owns result display; legacy notification hooks stay inert."""
+
+
 @dataclass(frozen=True)
 class Attempt:
     id: str
@@ -42,6 +46,7 @@ class Attempt:
     safe_details: dict[str, str]
     notification_pending: bool = False
     notification_dismissed: bool = False
+    card_dismissed: bool = False
 
     @property
     def notification_id(self) -> str:
@@ -107,17 +112,17 @@ def _message(attempt: Attempt) -> str:
 
 
 class AttemptJournal:
-    """Keep only the latest attempt in HA storage; keep each notification visible."""
+    """Keep the latest attempt and card dismissal in Home Assistant storage."""
 
     def __init__(self, hass, entry_id: str, *, store=None, notify=None) -> None:
         self._hass = hass
         self._store = store if store is not None else Store(
             hass, 1, f"paysmarti_visitor.{entry_id}.last_attempt", atomic_writes=True
         )
-        self._notify = notify if notify is not None else persistent_notification.async_create
+        self._notify = notify if notify is not None else _no_notification
         self._notification_lock = asyncio.Lock()
         self._unsub_notification = None
-        if hasattr(hass, "data") and hasattr(hass, "async_create_task"):
+        if notify is not None and hasattr(hass, "data") and hasattr(hass, "async_create_task"):
             self._unsub_notification = async_dispatcher_connect(
                 hass, persistent_notification.SIGNAL_PERSISTENT_NOTIFICATIONS_UPDATED,
                 self._on_notification_update,
@@ -152,6 +157,15 @@ class AttemptJournal:
     async def last(self) -> Attempt | None:
         data = await self._store.async_load()
         return Attempt(**data) if data is not None else None
+
+    async def dismiss(self, attempt_id: str) -> bool:
+        """Hide only the named completed attempt; a newer result stays visible."""
+        current = await self.last()
+        if current is None or current.id != attempt_id or current.status not in _FINAL:
+            return False
+        if not current.card_dismissed:
+            await self._save(replace(current, card_dismissed=True))
+        return True
 
     async def _save(self, attempt: Attempt) -> None:
         expected = asdict(attempt)
