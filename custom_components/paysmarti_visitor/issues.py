@@ -29,6 +29,5 @@ def record_page_error(hass, entry, error: UnexpectedPage, http_status: int | Non
 
 def clear_page_error(hass, entry) -> None:
     """Remove a stale form issue after a compatible operation."""
-    if entry.runtime_data.last_error is not None:
-        entry.runtime_data.last_error = None
-        issue_registry.async_delete_issue(hass, DOMAIN, f"form_changed_{entry.entry_id}")
+    entry.runtime_data.last_error = None
+    issue_registry.async_delete_issue(hass, DOMAIN, f"form_changed_{entry.entry_id}")

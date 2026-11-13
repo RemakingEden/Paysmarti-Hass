@@ -12,11 +12,16 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.core import SupportsResponse
 
 from custom_components.paysmarti_visitor.booking import PaysmartiBooker
-from custom_components.paysmarti_visitor.models import BookingContext, BookingReceipt, OutcomeUnknown, UnexpectedPage, VehicleOption
+from custom_components.paysmarti_visitor.models import BookingContext, BookingReceipt, BookingRejected, OutcomeUnknown, UnexpectedPage, VehicleOption
 from custom_components.paysmarti_visitor.services import book_visitor, get_last_result, list_saved_registrations
 
 
 START = datetime(2026, 11, 13, 10, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def fake_issue_deletion(monkeypatch):
+    monkeypatch.setattr("custom_components.paysmarti_visitor.issues.issue_registry.async_delete_issue", lambda *a, **kw: None)
 
 
 class Journal:
@@ -129,6 +134,19 @@ async def test_journal_failure_prevents_final_submission():
 
 
 @pytest.mark.asyncio
+async def test_initial_notification_failure_is_translated_and_prevents_submission():
+    class FailingJournal(Journal):
+        async def begin(self, mask):
+            raise RuntimeError("notifications unavailable")
+    state = runtime()
+    state.journal = FailingJournal()
+    with pytest.raises(HomeAssistantError) as error:
+        await book_visitor(None, state, new_registration="BB00BBB")
+    assert error.value.translation_key == "journal_unavailable"
+    assert state.booker.requests == []
+
+
+@pytest.mark.asyncio
 async def test_changed_field_name_still_finishes_precommit_attempt(monkeypatch):
     state = runtime(Booker(error=UnexpectedPage("StreetSelected", "/StepOne?secret=1", code="StreetSelected_changed")))
     monkeypatch.setattr("custom_components.paysmarti_visitor.issues.issue_registry.async_create_issue", lambda *a, **kw: None)
@@ -148,6 +166,19 @@ async def test_unknown_after_commit_is_preserved():
     with pytest.raises(HomeAssistantError):
         await book_visitor(None, state, new_registration="BB00BBB")
     assert state.journal.current.status == "outcome_unknown"
+
+
+@pytest.mark.asyncio
+async def test_commit_preflight_rejection_is_known_not_booked():
+    class RejectingBooker(Booker):
+        async def commit(self, prepared):
+            raise BookingRejected("token missing before POST")
+    state = runtime(RejectingBooker())
+    with pytest.raises(ServiceValidationError) as error:
+        await book_visitor(None, state, new_registration="BB00BBB")
+    assert error.value.translation_key == "booking_rejected"
+    assert state.journal.current.status == "not_booked"
+    assert state.journal.current.safe_details["error_code"] == "booking_rejected"
 
 
 @pytest.mark.asyncio
@@ -202,6 +233,35 @@ async def test_confirmed_save_refreshes_saved_list(monkeypatch):
     monkeypatch.setattr("custom_components.paysmarti_visitor.services.list_saved_vehicles", vehicles)
     await book_visitor(None, state, new_registration="BB00BBB", save=True)
     assert calls == [1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [TimeoutError("slow refresh"), OSError("connection lost")])
+async def test_confirmed_save_returns_receipt_and_safe_warning_if_refresh_fails(monkeypatch, failure):
+    state = runtime(enabled=True)
+    async def vehicles(session, context):
+        raise failure
+    monkeypatch.setattr("custom_components.paysmarti_visitor.services.list_saved_vehicles", vehicles)
+    result = await book_visitor(None, state, new_registration="BB00BBB", save=True)
+    assert result["reference"] == "ref"
+    assert result["refresh_warning"] == "saved_list_refresh_failed"
+    assert state.journal.current.status == "booked"
+
+
+@pytest.mark.asyncio
+async def test_changed_form_on_post_save_refresh_keeps_receipt_and_creates_issue(monkeypatch):
+    state = runtime(enabled=True)
+    created = []
+    monkeypatch.setattr("custom_components.paysmarti_visitor.issues.issue_registry.async_create_issue", lambda *a, **kw: created.append((a, kw)))
+    async def vehicles(session, context):
+        raise UnexpectedPage("vehicle", "/StepOne?token=secret", ("VrmSelected",))
+    monkeypatch.setattr("custom_components.paysmarti_visitor.services.list_saved_vehicles", vehicles)
+    result = await book_visitor(object(), state, new_registration="BB00BBB", save=True)
+    assert result["reference"] == "ref"
+    assert result["refresh_warning"] == "saved_list_refresh_failed"
+    assert state.journal.current.status == "booked"
+    assert state.last_error["path"] == "/StepOne"
+    assert len(created) == 1
 
 
 @pytest.mark.asyncio

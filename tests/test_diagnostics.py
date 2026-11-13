@@ -31,3 +31,17 @@ async def test_diagnostics_export_only_safe_error_metadata(monkeypatch):
     await list_saved_registrations(object(), state)
     assert len(calls) == 2
     assert (await async_get_config_entry_diagnostics(None, entry))["stage"] is None
+
+
+@pytest.mark.asyncio
+async def test_compatible_operation_clears_issue_after_runtime_restart(monkeypatch):
+    deleted = []
+    monkeypatch.setattr("custom_components.paysmarti_visitor.issues.issue_registry.async_delete_issue", lambda *a: deleted.append(a))
+    async def vehicles(session, context):
+        return []
+    monkeypatch.setattr("custom_components.paysmarti_visitor.services.list_saved_vehicles", vehicles)
+    state = SimpleNamespace(last_error=None, lock=asyncio.Lock(), session=object(), context=object(), enable_save_new=False)
+    state.entry = SimpleNamespace(entry_id="one", runtime_data=state)
+    await list_saved_registrations(object(), state)
+    assert len(deleted) == 1
+    assert deleted[0][1:] == ("paysmarti_visitor", "form_changed_one")

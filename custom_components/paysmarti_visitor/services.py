@@ -68,7 +68,7 @@ async def book_visitor(hass, state, *, saved_vehicle_id: str | None = None,
             registration = matches[0].registration
         try:
             attempt = await state.journal.begin(mask_registration(registration))
-        except OSError as exc:
+        except Exception as exc:
             raise _error("journal_unavailable") from exc
         committed = False
         try:
@@ -92,7 +92,12 @@ async def book_visitor(hass, state, *, saved_vehicle_id: str | None = None,
         except OutcomeUnknown as exc:
             await state.journal.finish(attempt.id, "outcome_unknown", {"stage": "commit", "error_code": "outcome_unknown"})
             raise _error("outcome_unknown") from exc
-        except (UnexpectedPage, BookingRejected, ValueError) as exc:
+        except BookingRejected as exc:
+            await state.journal.finish(attempt.id, "not_booked", {
+                "stage": "commit" if committed else "preparation", "error_code": "booking_rejected",
+            })
+            raise _validation("booking_rejected") from exc
+        except (UnexpectedPage, ValueError) as exc:
             if isinstance(exc, UnexpectedPage):
                 record_page_error(hass, state.entry, exc)
             await state.journal.finish(attempt.id, "outcome_unknown" if committed else "not_booked", {
@@ -108,13 +113,20 @@ async def book_visitor(hass, state, *, saved_vehicle_id: str | None = None,
             })
             raise _error("outcome_unknown" if committed else "cannot_connect") from exc
         clear_page_error(hass, state.entry)
+        refresh_warning = None
         if save:
             try:
                 await list_saved_vehicles(state.session, state.context)
             except UnexpectedPage as exc:
                 record_page_error(hass, state.entry, exc)
-        return {"registration": receipt.registration, "starts_at": receipt.starts_at.isoformat(),
-                "ends_at": receipt.ends_at.isoformat(), "reference": receipt.reference}
+                refresh_warning = "saved_list_refresh_failed"
+            except (aiohttp.ClientError, TimeoutError, OSError):
+                refresh_warning = "saved_list_refresh_failed"
+        result = {"registration": receipt.registration, "starts_at": receipt.starts_at.isoformat(),
+                  "ends_at": receipt.ends_at.isoformat(), "reference": receipt.reference}
+        if refresh_warning:
+            result["refresh_warning"] = refresh_warning
+        return result
 
 
 async def get_last_result(state) -> dict:

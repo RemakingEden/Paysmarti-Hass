@@ -211,7 +211,12 @@ class AttemptJournal:
         current = await self.last()
         if current is None or current.id != attempt_id:
             raise ValueError("Attempt not found")
-        if ((status == "not_booked" and current.status != "preparing")
+        # BookingRejected is raised by the booker only before its final POST.
+        # A persisted commit boundary can therefore be closed as not booked
+        # when that exact preflight rejection is observed by the caller.
+        rejected_before_post = (status == "not_booked" and current.status == "commit_started"
+                                and safe_details.get("error_code") == "booking_rejected")
+        if ((status == "not_booked" and current.status != "preparing" and not rejected_before_post)
                 or (status != "not_booked" and current.status != "commit_started")):
             raise ValueError("Invalid attempt transition")
         updated = Attempt(current.id, current.started_at, current.masked_registration,

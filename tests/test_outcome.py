@@ -89,6 +89,17 @@ def test_finish_updates_same_notification_and_reloads_last_result(status, phrase
     assert phrase in next(iter(notices.items.values()))[1]
 
 
+def test_known_preflight_rejection_after_commit_boundary_is_not_booked():
+    store = MemoryStore()
+    notices = Notifications()
+    attempts = journal(store, notices)
+    attempt = run(attempts.begin("***AAA"))
+    run(attempts.mark_commit_started(attempt.id))
+    run(attempts.finish(attempt.id, "not_booked", {"stage": "commit", "error_code": "booking_rejected"}))
+    assert store.data["status"] == "not_booked"
+    assert "final submission was not sent" in next(iter(notices.items.values()))[1]
+
+
 def test_begin_save_or_notification_failure_never_returns_commit_authority():
     store, notices = MemoryStore(), Notifications()
     store.fail_save = True
