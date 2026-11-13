@@ -1,0 +1,11 @@
+[project]
+name = "hass-visitors-pass"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["beautifulsoup4==4.15.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

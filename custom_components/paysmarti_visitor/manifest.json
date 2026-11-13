@@ -1,0 +1,9 @@
+{
+  "domain": "paysmarti_visitor",
+  "name": "Paysmarti Visitor",
+  "version": "0.1.0",
+  "documentation": "https://github.com/OWNER/hass-visitors-pass",
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "requirements": ["beautifulsoup4==4.15.0"]
+}
