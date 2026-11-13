@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {"title": "Paysmarti account", "data": {"email": "Email", "password": "Password"}},
+      "permit": {"title": "Choose visitor permit", "data": {"permit": "Permit"}},
+      "street": {"title": "Choose street", "data": {"street": "Street"}},
+      "reauth_confirm": {"title": "Reconnect Paysmarti", "data": {"email": "Email", "password": "Password"}}
+    },
+    "error": {"invalid_auth": "Email or password was rejected", "login_challenge": "Complete the interactive challenge on Paysmarti", "cannot_connect": "Cannot connect to Paysmarti", "already_configured": "This account is already configured", "account_mismatch": "Enter the email already configured for this account"},
+    "abort": {"booking_context_changed": "Permit or street could not be verified", "account_missing": "Account no longer exists"}
+  },
+  "options": {"step": {"init": {"title": "Vehicle options", "data": {"enable_save_new": "Allow saving a new vehicle"}}}},
+  "issues": {"form_changed": {"title": "Paysmarti booking form changed", "description": "The Paysmarti booking form is different from the supported flow. Check the integration and retry after it has been updated."}},
+  "exceptions": {
+    "save_disabled": {"message": "Saving a new vehicle is disabled for this account"},
+    "save_requires_new": {"message": "Saving requires a new registration"},
+    "invalid_registration": {"message": "Enter a valid registration"},
+    "registration_required": {"message": "Choose a saved vehicle or enter a registration"},
+    "vehicle_missing": {"message": "The selected saved vehicle is unavailable"},
+    "booking_rejected": {"message": "The booking was not submitted"},
+    "form_changed": {"message": "The Paysmarti booking form has changed"},
+    "outcome_unknown": {"message": "The booking outcome is unknown; check Paysmarti before trying again"},
+    "entry_unavailable": {"message": "The selected Paysmarti account is unavailable"},
+    "authentication_failed": {"message": "Paysmarti sign-in expired; reconnect the account before trying again"},
+    "login_challenge": {"message": "Paysmarti requires an interactive sign-in challenge; reconnect the account before trying again"},
+    "unexpected_redirect": {"message": "Paysmarti sent the session to an unexpected address; no booking was submitted"},
+    "cannot_connect": {"message": "Cannot connect to Paysmarti; no booking was submitted"},
+    "journal_unavailable": {"message": "Could not record the booking attempt; no booking was submitted"}
+  }
+}

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import aiohttp
+import probatio as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.http import StaticPathConfig
@@ -18,6 +19,9 @@ from .discovery import discover_context
 from .models import AuthenticationFailed, BookingContext, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
 from .outcome import AttemptJournal
 from .services import async_register_services
+
+
+CONFIG_SCHEMA = vol.Schema({}, extra=vol.ALLOW_EXTRA)
 
 
 @dataclass
