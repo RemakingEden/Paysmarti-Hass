@@ -6,7 +6,7 @@ This integration follows the observed Paysmarti browser flow. Site changes may i
 
 ## Install on your Home Assistant server
 
-**Public repository URL:** `https://github.com/OWNER/hass-visitors-pass` (**placeholder; replace `OWNER` with the published GitHub owner before installation**). The repository must be public and contain a release/tag before the Marketplace custom repository can install it. There is no separate card download or file copy.
+**Public repository URL:** `https://github.com/RemakingEden/Paysmarti-Hass`. The repository must be public for Marketplace custom-repository installation. A published GitHub release is recommended for clear versioned updates; without one, Marketplace uses the latest default-branch commit. There is no separate card download or file copy.
 
 1. On your Home Assistant **server**, install and open Home Assistant Marketplace (formerly HACS). In **Custom repositories**, add the published repository URL above as an **Integration** repository.
 2. Find **Paysmarti Visitor** in Marketplace, download it, and restart Home Assistant. The integration package includes the dashboard card JavaScript.
