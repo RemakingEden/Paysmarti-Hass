@@ -60,7 +60,7 @@ These five input/failure classes must have tests in the owning tasks:
 
 **Interfaces:** `parse_form(html: str, expected_action: str) -> FormSnapshot`; `FormSnapshot(action: str, fields: dict[str,str])`; `UnexpectedPage(stage, path, field_names)`; `BookingInput(saved_vehicle_id: str | None, new_registration: str | None, save: bool, nickname: str | None)`; `BookingReceipt(registration: str, starts_at: datetime, ends_at: datetime, reference: str | None)`; `VehicleOption`, `PermitOption`, `StreetOption` in `models.py`. `forms.py` uses Beautiful Soup's built-in `html.parser`; manifest pins `beautifulsoup4==4.15.0`.
 
-- [ ] Initialize Git, add ignore rules for credentials, Python/Node caches, and local captures; create the Marketplace layout, root `hacs.json`, a validation workflow, and the integration/test skeleton.
+- [ ] Confirm the already-initialized feature worktree is clean, extend ignore rules for credentials, Python/Node caches, and local captures; create the Marketplace layout, root `hacs.json`, a validation workflow, and the integration/test skeleton.
 - [ ] Write sanitized HTML fixtures with the observed form action names and hidden-field shapes; replace every personal or session value with a harmless fixture value.
 - [ ] Write `test_forms.py` cases asserting `parse_form` finds the fresh anti-forgery field and rejects a missing token, wrong action, or duplicate required field.
 - [ ] Run `pytest tests/test_forms.py -q`; expect failure because `parse_form` is absent.
@@ -122,7 +122,6 @@ These five input/failure classes must have tests in the owning tasks:
 - [ ] Set up a local test environment matching the current Home Assistant Core API; record the version in `pyproject.toml` test dependencies. The server's exact version is checked at installation, not assumed here.
 - [ ] Write config-flow tests for valid login, one permit/street, multiple choices, invalid credentials, interactive challenge, reauth, unload/reload, and Save disabled by default until the user enables `enable_save_new`.
 - [ ] Run `pytest tests/test_config_flow.py -q`; expect failure, then implement the flow and runtime setup.
-- [ ] Register the bundled card file at `/api/paysmarti_visitor/paysmarti-visitor-card.js` using Home Assistant's async static-path API, and test that setup exposes that path without touching the server's `www` directory.
 - [ ] Rerun `pytest tests/test_config_flow.py -q`; expect pass. Commit as `feat: configure and renew Paysmarti account`.
 
 ### Task 7: Durable attempts and unmistakable notifications
@@ -150,13 +149,13 @@ These five input/failure classes must have tests in the owning tasks:
 
 ### Task 9: Dedicated card and server installation guide
 
-**Files:** `custom_components/paysmarti_visitor/frontend/paysmarti-visitor-card.js`, `package.json`, `tests_frontend/card.test.js`, `README.md`, `hacs.json`.
+**Files:** `custom_components/paysmarti_visitor/{__init__.py,frontend/paysmarti-visitor-card.js}`, `package.json`, `tests_frontend/card.test.js`, `tests/test_frontend_resource.py`, `README.md`, `hacs.json`.
 
 **Interfaces:** card config contains the integration's config entry ID. It calls the three actions through Home Assistant WebSocket with response data and renders saved dropdown, new text, Save checkbox when `can_save_new` is true, conditional nickname, effective registration, Book, Refresh, and the restored last result.
 
-- [ ] Write jsdom tests for saved/new precedence, save/nickname visibility and clearing, invalid input, loading lock, green confirmed result, red pre-commit failure, amber unknown result, and last-result restore after a simulated card reload.
+- [ ] Write jsdom tests for saved/new precedence, save/nickname visibility and clearing, invalid input, loading lock, green confirmed result, red pre-commit failure, amber unknown result, and last-result restore after a simulated card reload. Write a Python test that the integration serves the bundled card at its documented static path.
 - [ ] Run `npm test`; expect failure, then implement the card with accessible status announcements and no registration stored in HA entity state or browser storage.
-- [ ] Rerun `npm test`; expect pass. Run a browser fixture or temporary local Home Assistant dashboard smoke check and verify that closing/reopening the card restores the last outcome.
+- [ ] Register the bundled card file at `/api/paysmarti_visitor/paysmarti-visitor-card.js` using Home Assistant's async static-path API, then run `pytest tests/test_frontend_resource.py -q` and `npm test`; expect pass. Run a browser fixture or temporary local Home Assistant dashboard smoke check and verify that closing/reopening the card restores the last outcome.
 - [ ] Write Marketplace custom-repository installation steps for the user's **server**, plus one dashboard resource registration at `/api/paysmarti_visitor/paysmarti-visitor-card.js`, config flow, and card placement. Include the public GitHub repository URL once supplied, action-permission warning, update instructions, and redacted diagnostic capture steps. No manual card file copy.
 - [ ] Validate the `hacs.json` and manifest structure locally; after the repository is published, the GitHub workflow runs Marketplace/HACS validation. Keep publication and server installation for the user's handoff.
 - [ ] Commit as `feat: add dedicated visitor booking card and setup guide`.
