@@ -12,7 +12,8 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from .const import DOMAIN
 from .discovery import list_saved_vehicles
 from .issues import clear_page_error, record_page_error
-from .models import BookingInput, BookingRejected, OutcomeUnknown, UnexpectedPage
+from .models import (AuthenticationFailed, BookingInput, BookingRejected, InteractiveChallenge,
+                     OutcomeUnknown, UnexpectedPage, UnexpectedRedirect)
 from .outcome import mask_registration
 
 
@@ -24,9 +25,27 @@ def _error(key: str) -> HomeAssistantError:
     return HomeAssistantError(translation_domain=DOMAIN, translation_key=key)
 
 
+async def _ensure_session(hass, state) -> None:
+    """Renew visitor access before reading forms or opening an attempt."""
+    try:
+        await state.authenticator.ensure_visitor_session()
+    except AuthenticationFailed as exc:
+        raise _error("authentication_failed") from exc
+    except InteractiveChallenge as exc:
+        raise _error("login_challenge") from exc
+    except UnexpectedRedirect as exc:
+        raise _error("unexpected_redirect") from exc
+    except UnexpectedPage as exc:
+        record_page_error(hass, state.entry, exc)
+        raise _error("form_changed") from exc
+    except (aiohttp.ClientError, TimeoutError, OSError) as exc:
+        raise _error("cannot_connect") from exc
+
+
 async def list_saved_registrations(hass, state) -> dict:
     """Refresh choices from the account's currently visible forms."""
     async with state.lock:
+        await _ensure_session(hass, state)
         try:
             vehicles = await list_saved_vehicles(state.session, state.context)
         except UnexpectedPage as exc:
@@ -52,6 +71,7 @@ async def book_visitor(hass, state, *, saved_vehicle_id: str | None = None,
     if save and not normalized:
         raise _validation("save_requires_new")
     async with state.lock:
+        await _ensure_session(hass, state)
         if normalized:
             registration = normalized
         else:

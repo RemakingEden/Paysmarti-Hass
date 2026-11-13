@@ -226,6 +226,33 @@ async def test_runtime_unload_reload_and_save_default(setup, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_attempt_recovery_precedes_unavailable_login(setup, monkeypatch):
+    from custom_components.paysmarti_visitor import async_setup_entry
+    from homeassistant.exceptions import ConfigEntryNotReady
+    events = []
+    class Journal:
+        def __init__(self, hass, entry_id):
+            pass
+        async def recover_on_startup(self):
+            events.append("recovered_unknown")
+        def close(self):
+            pass
+    class Authenticator(FakeAuthenticator):
+        async def login(self, email, password):
+            events.append("login")
+            raise OSError("site unavailable")
+    monkeypatch.setattr("custom_components.paysmarti_visitor.AttemptJournal", Journal)
+    monkeypatch.setattr("custom_components.paysmarti_visitor.PaysmartiAuthenticator", Authenticator)
+    monkeypatch.setattr("custom_components.paysmarti_visitor.async_create_clientsession", lambda hass: Session())
+    entry = SimpleNamespace(entry_id="one", data={"email": "a@example.test", "password": "secret"}, options={})
+    hass = FakeHass([entry])
+    hass.config = object()
+    with pytest.raises(ConfigEntryNotReady):
+        await async_setup_entry(hass, entry)
+    assert events == ["recovered_unknown", "login"]
+
+
+@pytest.mark.asyncio
 async def test_options_enable_save_only_when_chosen(setup):
     module, _, _ = setup
     entry = SimpleNamespace(options={})

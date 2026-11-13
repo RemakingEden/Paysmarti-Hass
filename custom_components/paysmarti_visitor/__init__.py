@@ -40,6 +40,9 @@ class PaysmartiRuntime:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Login and revalidate the account's chosen permit and street."""
+    journal = AttemptJournal(hass, entry.entry_id) if hasattr(hass, "config") else None
+    if journal is not None:
+        await journal.recover_on_startup()
     session = async_create_clientsession(hass)
     authenticator = PaysmartiAuthenticator(session, ALLOWED_HOSTS)
     try:
@@ -47,16 +50,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         context = await discover_context(session, entry.data["permit_label"], entry.data["street_label"])
     except (AuthenticationFailed, InteractiveChallenge) as exc:
         session.detach()
+        if journal is not None:
+            journal.close()
         raise ConfigEntryAuthFailed("Paysmarti authentication needs attention") from exc
     except (UnexpectedPage, UnexpectedRedirect, aiohttp.ClientError, TimeoutError, OSError) as exc:
         session.detach()
+        if journal is not None:
+            journal.close()
         raise ConfigEntryNotReady("Paysmarti account or booking context unavailable") from exc
     entry.runtime_data = PaysmartiRuntime(
-        authenticator, context, PaysmartiBooker(session, context), asyncio.Lock(), session, entry
+        authenticator, context, PaysmartiBooker(session, context), asyncio.Lock(), session, entry,
+        journal=journal,
     )
-    if hasattr(hass, "config"):
-        entry.runtime_data.journal = AttemptJournal(hass, entry.entry_id)
-        await entry.runtime_data.journal.recover_on_startup()
     return True
 
 

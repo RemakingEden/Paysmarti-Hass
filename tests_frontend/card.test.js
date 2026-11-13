@@ -109,6 +109,27 @@ test('card reopen restores last result from backend', async () => {
   card.remove(); root = await open(); assert.equal(root.querySelector('#result').dataset.kind, 'booked');
   assert.equal(calls.filter(x => x.service === 'get_last_result').length, 2);
 });
+test('result can be dismissed locally and returns on reopen without changing backend', async () => {
+  responses.get_last_result = {status:'outcome_unknown',masked_registration:'****BBB',safe_details:{}};
+  let root = await open();
+  const dismiss = root.querySelector('#dismiss-result');
+  assert.equal(dismiss.getAttribute('aria-label'), 'Dismiss booking result');
+  dismiss.click();
+  assert.equal(root.querySelector('#result').hidden, true);
+  assert.equal(calls.filter(x => x.service === 'get_last_result').length, 1);
+  card.remove(); root = await open();
+  assert.equal(root.querySelector('#result').dataset.kind, 'outcome_unknown');
+  assert.equal(root.querySelector('#result').hidden, false);
+});
+test('new attempt clears local result dismissal', async () => {
+  const root = await open();
+  responses.get_last_result = {status:'booked',masked_registration:'****AAA',safe_details:{}};
+  card._showResult(responses.get_last_result);
+  root.querySelector('#dismiss-result').click();
+  change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
+  assert.equal(root.querySelector('#result').dataset.kind, 'booked');
+  assert.equal(root.querySelector('#result').hidden, false);
+});
 test('a rejected booking with an unchanged older result is Not booked', async () => {
   responses.get_last_result = {status:'booked',started_at:'2026-11-12T10:00:00+00:00',masked_registration:'****AAA',safe_details:{starts_at:'2026-11-12T10:00:00+00:00',ends_at:'2026-11-12T23:59:00+00:00'}};
   responses.book_visitor = () => Promise.reject(new Error('entry_unavailable'));

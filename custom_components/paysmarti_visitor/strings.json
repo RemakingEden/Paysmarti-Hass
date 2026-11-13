@@ -21,6 +21,9 @@
     "form_changed": {"message": "The Paysmarti booking form has changed"},
     "outcome_unknown": {"message": "The booking outcome is unknown; check Paysmarti before trying again"},
     "entry_unavailable": {"message": "The selected Paysmarti account is unavailable"},
+    "authentication_failed": {"message": "Paysmarti sign-in expired; reconnect the account before trying again"},
+    "login_challenge": {"message": "Paysmarti requires an interactive sign-in challenge; reconnect the account before trying again"},
+    "unexpected_redirect": {"message": "Paysmarti sent the session to an unexpected address; no booking was submitted"},
     "cannot_connect": {"message": "Cannot connect to Paysmarti; no booking was submitted"},
     "journal_unavailable": {"message": "Could not record the booking attempt; no booking was submitted"}
   }

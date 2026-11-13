@@ -12,7 +12,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.core import SupportsResponse
 
 from custom_components.paysmarti_visitor.booking import PaysmartiBooker
-from custom_components.paysmarti_visitor.models import BookingContext, BookingReceipt, BookingRejected, OutcomeUnknown, UnexpectedPage, VehicleOption
+from custom_components.paysmarti_visitor.models import AuthenticationFailed, BookingContext, BookingReceipt, BookingRejected, InteractiveChallenge, OutcomeUnknown, UnexpectedPage, UnexpectedRedirect, VehicleOption
 from custom_components.paysmarti_visitor.services import book_visitor, get_last_result, list_saved_registrations
 
 
@@ -70,9 +70,57 @@ class Booker:
 def runtime(booker=None, enabled=False):
     state = SimpleNamespace(booker=booker or Booker(), journal=Journal(), lock=asyncio.Lock(),
                            enable_save_new=enabled, session=object(), context=object(), last_error=None,
-                           entry=SimpleNamespace(entry_id="one"))
+                           entry=SimpleNamespace(entry_id="one"),
+                           authenticator=SimpleNamespace(ensure_visitor_session=_ensure_session))
     state.entry.runtime_data = state
     return state
+
+
+async def _ensure_session():
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["list", "new", "saved"])
+async def test_actions_renew_session_before_page_access(monkeypatch, operation):
+    state = runtime()
+    events = []
+    async def ensure():
+        events.append("ensure")
+    async def vehicles(session, context):
+        events.append("vehicles")
+        return [VehicleOption("v1", "AA00AAA", "AA00AAA")]
+    async def prepare(request):
+        events.append("prepare")
+        return SimpleNamespace(registration="AA00AAA")
+    state.authenticator.ensure_visitor_session = ensure
+    state.booker.prepare = prepare
+    monkeypatch.setattr("custom_components.paysmarti_visitor.services.list_saved_vehicles", vehicles)
+    if operation == "list":
+        await list_saved_registrations(None, state)
+    else:
+        await book_visitor(None, state, **({"saved_vehicle_id": "v1"} if operation == "saved" else {"new_registration": "AA00AAA"}))
+    assert events[0] == "ensure"
+    assert events[1] == ("vehicles" if operation != "new" else "prepare")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["list", "book"])
+@pytest.mark.parametrize("failure,key", [(AuthenticationFailed(), "authentication_failed"),
+    (InteractiveChallenge(), "login_challenge"), (UnexpectedRedirect(), "unexpected_redirect")])
+async def test_session_renewal_failure_is_safe_and_never_submits(failure, key, operation):
+    state = runtime()
+    async def ensure():
+        raise failure
+    state.authenticator.ensure_visitor_session = ensure
+    with pytest.raises(HomeAssistantError) as error:
+        if operation == "list":
+            await list_saved_registrations(None, state)
+        else:
+            await book_visitor(None, state, new_registration="AA00AAA")
+    assert error.value.translation_key == key
+    assert state.booker.requests == []
+    assert state.journal.events == []
 
 
 @pytest.mark.asyncio

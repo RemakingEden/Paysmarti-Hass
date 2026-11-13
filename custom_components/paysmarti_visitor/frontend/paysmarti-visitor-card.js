@@ -187,7 +187,13 @@
         heading.textContent = 'Booking in progress';
         detail.textContent = 'Waiting for the booking result.';
       }
-      panel.append(heading, detail);
+      const dismiss = document.createElement('button');
+      dismiss.id = 'dismiss-result';
+      dismiss.type = 'button';
+      dismiss.setAttribute('aria-label', 'Dismiss booking result');
+      dismiss.textContent = 'Dismiss';
+      dismiss.addEventListener('click', () => { panel.hidden = true; });
+      panel.append(heading, detail, dismiss);
     }
 
     _update() {
@@ -236,6 +242,7 @@
           #result[data-kind=outcome_unknown], #result[data-kind=commit_started] { border-color:#b87300; background:#fff3cd; color:#624000; }
           #result[data-kind=preparing] { border-color:#4d6f95; background:#eaf2fa; color:#1c3956; }
           #result strong { display:block; margin-bottom:6px; }
+          #dismiss-result { margin-top:10px; background:transparent; border:1px solid currentColor; color:inherit; }
         </style>
         <ha-card><h2>Paysmarti Visitor</h2>
           <label for="saved">Saved registration</label><select id="saved"><option value="">Choose saved registration</option></select>
