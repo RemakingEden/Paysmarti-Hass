@@ -15,7 +15,16 @@ from .models import BookingContext, BookingInput, FormSnapshot, PreparedBooking,
 _STEP_ONE = "/LeedsCC/BookParking/StepOne"
 _STEP_TWO = "/LeedsCC/BookParking/StepTwo"
 _LOCAL_ZONE = ZoneInfo("Europe/London")
-_PARKING = re.compile(r"(?P<start>\d{2}/\d{2}/\d{4} \d{2}:\d{2}) to (?P<end>\d{2}/\d{2}/\d{4} \d{2}:\d{2})")
+_PARKING = re.compile(
+    r"The total charge for parking (?P<registration>[A-Z0-9 ]+)"
+    r"(?: \([^()]*\))? at (?P<street>.+?) from "
+    r"(?P<start>\d{1,2}:\d{2}) to (?P<end>\d{1,2}:\d{2}) today is £\d+\.\d{2}\s*\."
+)
+_PRESERVED_FIELDS = (
+    "UseNewVrm", "Vrm", "VrmSelected", "StreetSelected", "StartParkingNow",
+    "ParkMultipleVehicles", "SaveThisVrm", "VehicleKnownAs", "VisitorSessionType",
+)
+_BOOLEAN_FIELDS = {"UseNewVrm", "StartParkingNow", "ParkMultipleVehicles", "SaveThisVrm"}
 
 
 def _now() -> datetime:
@@ -45,53 +54,63 @@ def _single_option(html: str, field: str, expected_id: str, expected_label: str)
         raise UnexpectedPage(field, _STEP_ONE, code=f"{field}_changed")
 
 
-def _summary_text(html: str, label: str) -> str:
+def _permit_summary(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     matches = []
-    for element in soup.select("p"):
-        text = element.get_text(" ", strip=True)
-        if text.startswith(f"{label}:"):
-            matches.append(text[len(label) + 1:].strip())
+    for label in soup.find_all("label"):
+        if label.get_text(" ", strip=True) == "Permit" and label.parent:
+            values = label.parent.select("div.form-control-static")
+            if len(values) == 1:
+                matches.append(values[0].get_text(" ", strip=True))
     if len(matches) != 1 or not matches[0]:
         raise UnexpectedPage("summary", _STEP_TWO, code="summary_changed")
     return matches[0]
 
 
-def _verified_summary(html: str, context: BookingContext, registration: str) -> PreparedBooking:
+def _preserved(current: dict[str, str], expected: dict[str, str], stage: str, path: str) -> None:
+    for field in _PRESERVED_FIELDS:
+        actual, wanted = current.get(field), expected[field]
+        if actual is None or (actual.lower() if field in _BOOLEAN_FIELDS else actual) != (wanted.lower() if field in _BOOLEAN_FIELDS else wanted):
+            raise UnexpectedPage(stage, path, code=f"{field}_changed")
+
+
+def _verified_summary(html: str, context: BookingContext, registration: str, expected_fields: dict[str, str]) -> PreparedBooking:
     form = parse_form(html, _STEP_TWO)
     _trusted_action(form.action, _STEP_TWO)
-    if form.fields.get("VisitorSessionType") != "DAY":
-        raise UnexpectedPage("summary", _STEP_TWO, code="session_changed")
-    expected = {
-        "Registration": registration,
-        "Permit": context.permit_label,
-        "Street": context.street_label,
-        "Session": "DAY",
-    }
-    for label, value in expected.items():
-        if _summary_text(html, label) != value:
-            raise UnexpectedPage("summary", _STEP_TWO, code=f"{label.lower()}_changed")
-    match = _PARKING.fullmatch(_summary_text(html, "Parking"))
-    if not match:
+    _preserved(form.fields, expected_fields, "summary", _STEP_TWO)
+    if _permit_summary(html) != context.permit_label:
+        raise UnexpectedPage("summary", _STEP_TWO, code="permit_changed")
+    soup = BeautifulSoup(html, "html.parser")
+    matches = [_PARKING.fullmatch(p.get_text(" ", strip=True)) for p in soup.find_all("p")]
+    matches = [match for match in matches if match]
+    if len(matches) != 1:
         raise UnexpectedPage("summary", _STEP_TWO, code="parking_changed")
+    match = matches[0]
+    if re.sub(r"\s+", "", match["registration"]).upper() != registration:
+        raise UnexpectedPage("summary", _STEP_TWO, code="registration_changed")
+    if match["street"] != context.street_label:
+        raise UnexpectedPage("summary", _STEP_TWO, code="street_changed")
     try:
-        start = datetime.strptime(match["start"], "%d/%m/%Y %H:%M").replace(tzinfo=_LOCAL_ZONE)
-        end = datetime.strptime(match["end"], "%d/%m/%Y %H:%M").replace(tzinfo=_LOCAL_ZONE)
+        start_time = datetime.strptime(match["start"], "%H:%M").time()
+        end_time = datetime.strptime(match["end"], "%H:%M").time()
     except ValueError as exc:
         raise UnexpectedPage("summary", _STEP_TWO, code="parking_changed") from exc
     now = _now().astimezone(_LOCAL_ZONE)
-    if (start.date() != now.date() or start > now
-            or start < now - timedelta(minutes=15)
-            or end != datetime.combine(now.date(), time(23, 59), _LOCAL_ZONE)):
+    start = datetime.combine(now.date(), start_time, _LOCAL_ZONE)
+    end = datetime.combine(now.date(), end_time, _LOCAL_ZONE)
+    if start > now or start < now - timedelta(minutes=5) or end_time != time(23, 59):
         raise UnexpectedPage("summary", _STEP_TWO, code="parking_changed")
     return PreparedBooking(form, registration, context.street_label, context.permit_label, start, end, "DAY")
 
 
 def _is_prompt(html: str, registration: str) -> bool:
     soup = BeautifulSoup(html, "html.parser")
-    scripts = [script.get_text(strip=True) for script in soup.find_all("script")]
-    expected = f'bootbox.dialog({{message: "Are you sure you wish to book parking for {registration}?"}});'
-    return scripts == [expected]
+    scripts = [script.get_text() for script in soup.find_all("script")]
+    dialogs = [script for script in scripts if "bootbox.dialog" in script]
+    if len(dialogs) != 1 or dialogs[0].count("bootbox.dialog") != 1:
+        return False
+    message = re.search(r"bootbox\.dialog\s*\(\s*\{\s*message\s*:\s*(['\"])(.*?)\1", dialogs[0], re.S)
+    return bool(message and message.group(2) == f"Are you sure you wish to book parking for {registration}?")
 
 
 class PaysmartiBooker:
@@ -144,17 +163,16 @@ class PaysmartiBooker:
         }
         result = await _page(self._session, "POST", _trusted_action(step_form.action, _STEP_ONE), fields)
         try:
-            return _verified_summary(result, self._context, registration)
+            return _verified_summary(result, self._context, registration, fields)
         except UnexpectedPage:
             if not new or not _is_prompt(result, registration):
                 raise
         prompt_form = parse_form(result, _STEP_ONE)
+        _preserved(prompt_form.fields, fields, "prompt", _STEP_ONE)
         if (prompt_form.fields.get("__RequestVerificationToken") == step_form.fields.get("__RequestVerificationToken")
-                or prompt_form.fields.get("Vrm") != registration
-                or prompt_form.fields.get("UseNewVrm") != "True"
                 or prompt_form.fields.get("ConfirmModal") != "False"
-                or prompt_form.fields.get("VisitorSessionType") != "DAY"):
+                ):
             raise UnexpectedPage("prompt", _STEP_ONE, code="prompt_changed")
         confirmed = await _page(self._session, "POST", _trusted_action(prompt_form.action, _STEP_ONE),
                                 {**prompt_form.fields, "ConfirmModal": "True"})
-        return _verified_summary(confirmed, self._context, registration)
+        return _verified_summary(confirmed, self._context, registration, fields)

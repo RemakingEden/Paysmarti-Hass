@@ -5,8 +5,15 @@
   <input type="hidden" name="CustomerId" value="fixture-customer" />
   <input type="hidden" name="UseNewVrm" value="True" />
   <input type="hidden" name="Vrm" value="BB00BBB" />
+  <input type="hidden" name="VrmSelected" value="" />
+  <input type="hidden" name="StreetSelected" value="fixture-street" />
+  <input type="hidden" name="StartParkingNow" value="True" />
+  <input type="hidden" name="ParkMultipleVehicles" value="False" />
+  <input type="hidden" name="SaveThisVrm" value="False" />
+  <input type="hidden" name="VehicleKnownAs" value="" />
   <input type="hidden" name="ConfirmModal" value="False" />
   <input type="hidden" name="VisitorSessionType" value="DAY" />
 </form>
-<script>bootbox.dialog({message: "Are you sure you wish to book parking for BB00BBB?"});</script>
+<script>window.siteReady = true;</script>
+<script>$(function () { bootbox.dialog({message: "Are you sure you wish to book parking for BB00BBB?", buttons: {yes: {callback: function () { $("#ConfirmModal").val("True"); }} }}); });</script>
 </body></html>

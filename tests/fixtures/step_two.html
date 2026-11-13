@@ -3,8 +3,17 @@
 <form method="post" action="/LeedsCC/BookParking/StepTwo">
   <input type="hidden" name="__RequestVerificationToken" value="fixture-token-step-two" />
   <input type="hidden" name="CustomerId" value="fixture-customer" />
+  <input type="hidden" name="StartParkingNow" value="True" />
+  <input type="hidden" name="UseNewVrm" value="False" />
+  <input type="hidden" name="Vrm" value="" />
+  <input type="hidden" name="SaveThisVrm" value="False" />
+  <input type="hidden" name="VehicleKnownAs" value="" />
+  <input type="hidden" name="ParkMultipleVehicles" value="False" />
+  <input type="hidden" name="StreetSelected" value="fixture-street" />
+  <input type="hidden" name="VrmSelected" value="fixture-vehicle" />
   <input type="hidden" name="VisitorSessionType" value="DAY" />
   <button type="submit" name="Button" value="Step2Confirm">Confirm</button>
 </form>
-<p>Registration: AA00AAA</p><p>Permit: Fixture Visitor Permit</p><p>Street: Fixture Street</p><p>Session: DAY</p><p>Parking: 13/11/2026 10:05 to 13/11/2026 23:59</p>
+<div class="row form-group"><label class="control-label col-sm-2">Permit</label><div class="col-sm-10 form-control-static">Fixture Visitor Permit</div></div>
+<p>The total charge for parking AA00AAA at Fixture Street from 10:05 to 23:59 today is <span class="stepTwoCharge">£0.00</span>.</p>
 </body></html>
