@@ -63,10 +63,10 @@ async def list_saved_vehicles(session, context: BookingContext) -> list[VehicleO
     _, step_html = await _discover(session, context.permit_label, context.street_label)
     vehicles = []
     for value, label in form_options(step_html, _STEP_ONE, "VrmSelected"):
-        # The verified fixture displays only the registration. Descriptive text
-        # cannot safely be split into a registration without a site-provided key.
-        # Accept only the verified standard UK plate display shape.
-        if re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z]{3}", label) is None:
+        # Spaces and case are display formatting. Anything else cannot safely
+        # be split into a registration without a site-provided registration key.
+        registration = re.sub(r"\s+", "", label).upper()
+        if re.fullmatch(r"[A-Z0-9]{1,10}", registration) is None:
             raise UnexpectedPage("vehicle", _STEP_ONE, code="vehicle_unverifiable")
-        vehicles.append(VehicleOption(value, label, label))
+        vehicles.append(VehicleOption(value, registration, label))
     return vehicles

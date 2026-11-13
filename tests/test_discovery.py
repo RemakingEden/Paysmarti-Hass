@@ -144,9 +144,22 @@ def test_saved_vehicle_with_descriptive_label_fails_closed():
     assert error.value.code == "vehicle_unverifiable"
 
 
-def test_saved_vehicle_with_bare_nickname_fails_closed():
+def test_saved_vehicle_with_long_bare_nickname_fails_closed():
     context = run(discover_context(Session(), None, None))
-    step = STEP.replace('>AA00AAA</option>', '>FAMILYCAR</option>')
+    step = STEP.replace('>AA00AAA</option>', '>FAMILYCARLONG</option>')
     with pytest.raises(UnexpectedPage) as error:
         run(list_saved_vehicles(Session(step=step), context))
     assert error.value.code == "vehicle_unverifiable"
+
+
+@pytest.mark.parametrize("display,registration", [
+    ("aa00 aaa", "AA00AAA"),
+    ("A 1", "A1"),
+    ("ABC 123", "ABC123"),
+])
+def test_saved_vehicle_normalizes_spaced_and_personalized_registrations(display, registration):
+    context = run(discover_context(Session(), None, None))
+    step = STEP.replace('>AA00AAA</option>', f'>{display}</option>')
+    assert run(list_saved_vehicles(Session(step=step), context)) == [
+        VehicleOption("fixture-vehicle", registration, display)
+    ]
