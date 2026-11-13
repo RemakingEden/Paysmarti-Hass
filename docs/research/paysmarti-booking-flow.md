@@ -28,6 +28,7 @@ Observed in the user's Caido history on 13 November 2026. These are two successf
 
 - The first booking used a saved vehicle (`VrmSelected`). The second booking used a new vehicle (`Vrm`, `UseNewVrm=True`) with saving off. Both used the same selected street (`StreetSelected`).
 - The new-vehicle form has a `SaveThisVrm` checkbox and a `VehicleKnownAs` text field. The captured HTML does not mark `VehicleKnownAs` as required; server behavior when saving a new registration remains unverified.
+- On 13 November 2026, the user reported a successful live booking through the integration with a new registration and nickname, and confirmed that saving worked. This report supersedes the earlier unverified status for that path; no identifying values were recorded.
 - The captured new-registration input applies a client-side `^[0-9A-Z]*$` pattern and a maximum length of 10 after the page's input filter; server validation may be stricter.
 - Inline JavaScript on the captured Step 1 page switches between saved and new registration controls using radio buttons. It sets `NewVrmRequired` or `SelectedVrmRequired` accordingly. It shows the name field when `SaveThisVrm` is checked and hides and clears it when unchecked. The same script switches the single-vehicle and multiple-vehicle controls.
 - Step 1 posted `VisitorSessionType=DAY`. The semantics and availability of other session types are unverified.

@@ -22,17 +22,7 @@ type: custom:paysmarti-visitor-card
 config_entry_id: YOUR_CONFIG_ENTRY_ID
 ```
 
-The card loads saved registrations when opened. Entering nonempty new text overrides the saved dropdown; the effective registration appears above **Book**. The Save checkbox appears only when a new registration is entered and **Enable saving new registrations** is turned on in integration options. Saving is off by default. **The Save with nickname path has not been verified against the live Paysmarti site.** Enable it only for the controlled one-booking test below; the card labels it unverified. Check the effective registration before selecting **Book**.
-
-## One-booking server verification
-
-Run this checklist only when you choose to make one real visitor booking. The local tests do not submit a booking.
-
-1. Record the server's exact Home Assistant Core version and compare it with the locally tested `2026.11.0`. Record the installed Paysmarti Visitor version and repository tag. Check compatibility before proceeding if the server version differs.
-2. Install the public, tagged integration through the Marketplace custom repository using the steps above. Confirm the dashboard card loads, the saved list refreshes, and **Enable saving new registrations** is off by default.
-3. With a registration you are authorized to book and save, enable that option. Enter the registration as new text, check **Save this registration (unverified; controlled test only)**, and enter an optional nickname. Check the effective registration, permit, street, and intended day before selecting **Book** once.
-4. Check the receipt and Paysmarti account for exactly one booking. If the card says **Outcome unknown**, check Paysmarti before any retry. Refresh the card and confirm the saved registration and nickname appear as intended; if either does not, record the discrepancy.
-5. Turn the saving option off after the test. Record only redacted observations: Core and integration versions, the stage/result, whether the nickname and saved list refreshed, and any error code or HTTP status. Omit credentials, tokens, cookies, full registrations, names, addresses, query strings, page bodies, and unredacted screenshots or HAR files.
+The card loads saved registrations when opened. Entering nonempty new text overrides the saved dropdown; the effective registration appears above **Book**. The **Save this registration** checkbox appears only when a new registration is entered and **Enable saving new registrations** is turned on in integration options. Selecting it reveals an optional nickname field. Saving is off by default. Check the effective registration before selecting **Book**. A user has reported a successful live booking while saving a new registration with a nickname.
 
 **Action permissions:** Anyone in Home Assistant who can run the `paysmarti_visitor.book_visitor` action for this config entry can create a real permit booking, including from the Actions interface without the card. Restrict access to trusted Home Assistant users and automations. The card does not store a typed registration in an entity state or browser storage. The integration stores a masked last attempt and leaves its persistent notification until dismissed. The card's **Dismiss** button hides the result only in the current card instance; reopening the card restores the backend result, and the Home Assistant notification remains until dismissed separately.
 

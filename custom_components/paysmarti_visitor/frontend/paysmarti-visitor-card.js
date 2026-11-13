@@ -252,7 +252,7 @@
           <label for="saved">Saved registration</label><select id="saved"><option value="">Choose saved registration</option></select>
           <label for="new">New registration</label><input id="new" type="text" autocomplete="off" maxlength="20" autocapitalize="characters" spellcheck="false">
           <div id="validation" role="alert"></div>
-          <div id="save-row" hidden><label class="check"><input id="save" type="checkbox"> Save this registration (unverified; controlled test only)</label></div>
+          <div id="save-row" hidden><label class="check"><input id="save" type="checkbox"> Save this registration</label></div>
           <div id="nickname-row" hidden><label for="nickname">Nickname (optional)</label><input id="nickname" type="text" autocomplete="off"></div>
           <div id="effective" aria-live="polite"></div>
           <div class="actions"><button id="book" type="button">Book</button><button id="refresh" type="button">Refresh</button></div>

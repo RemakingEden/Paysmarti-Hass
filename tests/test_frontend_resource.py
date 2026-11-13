@@ -12,7 +12,7 @@ def integration_version(monkeypatch):
     from homeassistant import loader
 
     async def integration(hass, domain):
-        return SimpleNamespace(version="0.1.8")
+        return SimpleNamespace(version="0.1.9")
     monkeypatch.setattr(loader, "async_get_integration", integration)
 
 
@@ -74,7 +74,7 @@ async def test_setup_updates_existing_card_resource_without_adding_another():
     )
     await async_setup(hass, {})
     assert len(resources) == 1
-    assert resources[0]["url"].endswith("?v=0.1.8")
+    assert resources[0]["url"].endswith("?v=0.1.9")
 
 
 @pytest.mark.asyncio
@@ -83,7 +83,7 @@ async def test_setup_gets_resource_version_without_blocking_file_read(monkeypatc
 
     async def integration(hass, domain):
         assert domain == "paysmarti_visitor"
-        return SimpleNamespace(version="0.1.8")
+        return SimpleNamespace(version="0.1.9")
     def forbidden_read(*args, **kwargs):
         raise AssertionError("manifest file read in event loop")
     monkeypatch.setattr(loader, "async_get_integration", integration)
@@ -102,7 +102,7 @@ async def test_setup_gets_resource_version_without_blocking_file_read(monkeypatc
             async_items=lambda: resources, async_get_info=info, async_create_item=create))},
     )
     await async_setup(hass, {})
-    assert resources[0]["url"].endswith("?v=0.1.8")
+    assert resources[0]["url"].endswith("?v=0.1.9")
     assert resources[0]["res_type"] == "module"
     assert resources[0]["url"].startswith("/api/paysmarti_visitor/paysmarti-visitor-card.js")
     await async_setup(hass, {})
