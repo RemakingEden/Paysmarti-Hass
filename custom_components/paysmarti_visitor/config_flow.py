@@ -24,6 +24,7 @@ _SAFE_AUTH_FAILURE_REASONS = frozenset({
     "Authentication request failed",
     "Unexpected federation method",
     "Login did not establish a session",
+    "Account session was not established",
     "Visitor session was not established",
     "Visitor permit form unavailable",
     "Authentication handoff exceeded redirect limit",

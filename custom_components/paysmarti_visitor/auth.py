@@ -11,6 +11,7 @@ from .models import AuthenticationFailed, InteractiveChallenge, UnexpectedPage, 
 
 LOGIN_URL = f"https://{LOGIN_HOST}/login/LeedsCC/Home"
 LOGIN_PAGE_PATH = "/login/LeedsCC/"
+ACCOUNT_URL = f"https://{LOGIN_HOST}/acct/LeedsCC/"
 VISITOR_URL = f"https://{VISITOR_HOST}/LeedsCC/BookParking/SelectPermit"
 _MAX_HOPS = 12
 _CHALLENGE_MARKERS = ("captcha", "multi-factor", "multifactor", "verification code", "one-time code", "two-factor")
@@ -104,6 +105,8 @@ class PaysmartiAuthenticator:
                 raise _ExpiredSession
             if urlsplit(url).path == urlsplit(LOGIN_URL).path and urlsplit(url).hostname == LOGIN_HOST:
                 raise AuthenticationFailed("Login did not establish a session")
+            if not visitor and (urlsplit(url).hostname != LOGIN_HOST or urlsplit(url).path != urlsplit(ACCOUNT_URL).path):
+                raise AuthenticationFailed("Account session was not established")
             if visitor and (urlsplit(url).hostname != VISITOR_HOST or urlsplit(url).path != urlsplit(VISITOR_URL).path):
                 raise AuthenticationFailed("Visitor session was not established")
             if visitor:
@@ -119,13 +122,13 @@ class PaysmartiAuthenticator:
         raise AuthenticationFailed("Authentication handoff exceeded redirect limit")
 
     async def _login_account(self, email: str, password: str) -> None:
-        # The browser reaches the login page through the visitor site's
-        # federation redirect. /login/LeedsCC/Home is its POST endpoint; a
-        # direct GET there returns a server error and is not a login form.
-        status, _, location = await self._request("GET", VISITOR_URL)
+        # Establish the account session first. A fresh browser is redirected
+        # from the account site to the login page, then federates to visitor.
+        # /login/LeedsCC/Home is only the credential POST endpoint.
+        status, _, location = await self._request("GET", ACCOUNT_URL)
         if not 300 <= status < 400 or not location:
             raise AuthenticationFailed("Login handoff unavailable")
-        login_page = self._trusted(VISITOR_URL, location)
+        login_page = self._trusted(ACCOUNT_URL, location)
         parts = urlsplit(login_page)
         query = parse_qs(parts.query)
         if parts.hostname != LOGIN_HOST or parts.path != LOGIN_PAGE_PATH or query.get("wa") != ["wsignin1.0"] or not all(query.get(key) for key in ("wctx", "wreply", "wtrealm")):
