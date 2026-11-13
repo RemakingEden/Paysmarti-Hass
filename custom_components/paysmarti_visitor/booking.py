@@ -3,7 +3,7 @@
 import asyncio
 import re
 from datetime import datetime, timedelta, time
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
@@ -43,6 +43,25 @@ def _trusted_action(action: str, path: str) -> str:
             or parts.username or parts.password or parts.port not in (None, 443)
             or parts.query or parts.fragment):
         raise UnexpectedPage("booking", path)
+    return url
+
+
+def _trusted_success_url(location: str, permit_id: str) -> str:
+    """Accept only the observed booking receipt redirect for this permit."""
+    url = urljoin(VISITOR_URL, location)
+    parts = urlsplit(url)
+    if (parts.scheme != "https" or parts.hostname != VISITOR_HOST or parts.path != _SUCCESS
+            or parts.username or parts.password or parts.port not in (None, 443) or parts.fragment):
+        raise ValueError("Unexpected success redirect")
+    try:
+        pairs = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError as exc:
+        raise ValueError("Invalid success redirect query") from exc
+    parameters = dict(pairs)
+    if (len(pairs) != 2 or set(parameters) != {"permit", "paymentId"}
+            or parameters["permit"] != permit_id
+            or not re.fullmatch(r"[0-9]+", parameters["paymentId"])):
+        raise ValueError("Unexpected success redirect query")
     return url
 
 
@@ -122,26 +141,34 @@ def _is_prompt(html: str, registration: str) -> bool:
 
 def _success_receipt(html: str, prepared: PreparedBooking) -> BookingReceipt:
     soup = BeautifulSoup(html, "html.parser")
-    headings = soup.find_all("h1")
-    if len(headings) != 1 or headings[0].get_text(" ", strip=True) != "Parking booked":
-        raise ValueError("Success heading missing")
-    values: dict[str, str] = {}
-    for paragraph in soup.find_all("p"):
-        label, separator, value = paragraph.get_text(" ", strip=True).partition(":")
-        if separator and label in {"Registration", "Start", "End", "Reference"}:
-            if label in values:
-                raise ValueError("Duplicate success field")
-            values[label] = value.strip()
-    if not {"Registration", "Start", "End"}.issubset(values):
-        raise ValueError("Success details missing")
-    registration = re.sub(r"\s+", "", values["Registration"]).upper()
+    headings = [heading.get_text(" ", strip=True).lower() for heading in soup.find_all("h2")]
+    if headings.count("book parking (step 3 of 3)") != 1:
+        raise ValueError("Success step missing")
+    messages = [paragraph.get_text(" ", strip=True) for paragraph in soup.find_all("p")]
+    if messages.count("Your visitor parking session has been booked.") != 1:
+        raise ValueError("Success message missing")
+
+    def field(label: str) -> str:
+        matches = []
+        for element in soup.find_all("label"):
+            if " ".join(element.get_text(" ", strip=True).split()) == label and element.parent:
+                values = element.parent.select("div.form-control-static")
+                if len(values) == 1:
+                    matches.append(values[0].get_text(" ", strip=True))
+        if len(matches) != 1 or not matches[0]:
+            raise ValueError(f"Success {label} missing")
+        return matches[0]
+
+    if field("Permit") != prepared.permit or field("Location") != prepared.street:
+        raise ValueError("Success permit or location differs")
+    registration = re.sub(r"\s+", "", field("Vehicle registration number")).upper()
     if registration != prepared.registration:
         raise ValueError("Success registration differs")
-    start = datetime.strptime(values["Start"], "%d/%m/%Y %H:%M").replace(tzinfo=_LOCAL_ZONE)
-    end = datetime.strptime(values["End"], "%d/%m/%Y %H:%M").replace(tzinfo=_LOCAL_ZONE)
+    start = datetime.strptime(field("Parking allowed from"), "%H:%M %d/%m/%Y").replace(tzinfo=_LOCAL_ZONE)
+    end = datetime.strptime(field("Parking allowed until"), "%H:%M %d/%m/%Y").replace(tzinfo=_LOCAL_ZONE)
     if start != prepared.starts_at or end != prepared.ends_at:
         raise ValueError("Success times differ")
-    return BookingReceipt(registration, start, end, values.get("Reference") or None)
+    return BookingReceipt(registration, start, end)
 
 
 class PaysmartiBooker:
@@ -172,7 +199,7 @@ class PaysmartiBooker:
                 location = response.headers.get("Location")
                 if not location:
                     raise ValueError("Success redirect missing")
-                success_url = _trusted_action(location, _SUCCESS)
+                success_url = _trusted_success_url(location, self._context.permit_id)
             async with self._session.request(
                 "GET", success_url, data=None, allow_redirects=False, timeout=30,
             ) as response:

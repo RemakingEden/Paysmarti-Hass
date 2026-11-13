@@ -337,7 +337,7 @@ async def test_saved_booking_uses_fixture_transport_and_returns_verified_receipt
     session = Session([
         page("permit.html"), page("step_one_saved.html"),
         page("permit.html"), page("step_one_saved.html"), page("step_two.html"),
-        Response("", 302, {"Location": "/LeedsCC/BookParkingSuccess"}), page("success.html"),
+        Response("", 302, {"Location": "/LeedsCC/BookParkingSuccess?permit=fixture-permit&paymentId=12345"}), page("success.html"),
     ])
     context = BookingContext("fixture-permit", "Fixture Visitor Permit", "fixture-street", "Fixture Street")
     monkeypatch.setattr("custom_components.paysmarti_visitor.booking._now", lambda: datetime(2026, 11, 13, 10, 10, tzinfo=ZoneInfo("Europe/London")))
@@ -345,12 +345,12 @@ async def test_saved_booking_uses_fixture_transport_and_returns_verified_receipt
     state.session, state.context = session, context
     result = await book_visitor(None, state, saved_vehicle_id="fixture-vehicle")
     assert result["registration"] == "AA00AAA"
-    assert result["reference"] == "FIXTURE-BOOKING"
+    assert result["reference"] is None
     assert state.journal.events[0] == ("begin", "****AAA")
     assert state.journal.events[1] == ("commit_started", "attempt")
     assert session.calls[-2:] == [
         ("POST", "https://visitor.paysmarti.co.uk/LeedsCC/BookParking/StepTwo"),
-        ("GET", "https://visitor.paysmarti.co.uk/LeedsCC/BookParkingSuccess"),
+        ("GET", "https://visitor.paysmarti.co.uk/LeedsCC/BookParkingSuccess?permit=fixture-permit&paymentId=12345"),
     ]
 
 

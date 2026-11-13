@@ -242,7 +242,7 @@ def commit_session(*post_results):
     return booker, prepared, session
 
 
-def success_redirect(location="/LeedsCC/BookParkingSuccess"):
+def success_redirect(location="/LeedsCC/BookParkingSuccess?permit=fixture-permit&paymentId=12345"):
     return Response("", 302, {"Location": location})
 
 
@@ -256,11 +256,11 @@ def test_commit_posts_step_two_once_and_verifies_success_page():
         "POST", "https://visitor.paysmarti.co.uk/LeedsCC/BookParking/StepTwo",
         prepared.form.fields, False, 30,
     )
-    assert session.calls[4] == ("GET", SUCCESS_URL, None, False, 30)
+    assert session.calls[4] == ("GET", SUCCESS_URL + "?permit=fixture-permit&paymentId=12345", None, False, 30)
     assert receipt.registration == "AA00AAA"
     assert receipt.starts_at == datetime(2026, 11, 13, 10, 5, tzinfo=ZoneInfo("Europe/London"))
     assert receipt.ends_at == datetime(2026, 11, 13, 23, 59, tzinfo=ZoneInfo("Europe/London"))
-    assert receipt.reference == "FIXTURE-BOOKING"
+    assert receipt.reference is None
 
 
 @pytest.mark.parametrize("result", [
@@ -268,6 +268,9 @@ def test_commit_posts_step_two_once_and_verifies_success_page():
     Response("error", 500),
     success_redirect("https://other.example/LeedsCC/BookParkingSuccess"),
     success_redirect("/LeedsCC/BookParkingSuccess?next=1"),
+    success_redirect("/LeedsCC/BookParkingSuccess?permit=other-permit&paymentId=12345"),
+    success_redirect("/LeedsCC/BookParkingSuccess?permit=fixture-permit&paymentId=12345&paymentId=67890"),
+    success_redirect("/LeedsCC/BookParkingSuccess?permit=fixture-permit&paymentId=unknown"),
     success_redirect("/LeedsCC/BookParking/StepTwo"),
     Response(SUCCESS),
 ])
@@ -285,8 +288,10 @@ def test_commit_uncertain_post_never_resubmits(result):
     SUCCESS.replace("AA00AAA", "BB00BBB"),
     SUCCESS.replace("10:05", "10:06"),
     SUCCESS.replace("23:59", "23:58"),
-    SUCCESS.replace("Parking booked", "Parking pending"),
-    SUCCESS.replace("Registration: AA00AAA", "Registration: "),
+    SUCCESS.replace("Your visitor parking session has been booked.", "Your visitor parking session is pending."),
+    SUCCESS.replace("Fixture Visitor Permit", "Different Permit"),
+    SUCCESS.replace("Fixture Street", "Different Street"),
+    SUCCESS.replace("Vehicle registration number", "Vehicle"),
 ])
 def test_commit_changed_success_page_is_unknown(success):
     booker, prepared, session = commit_session(success_redirect(), Response(success))
@@ -340,7 +345,7 @@ class BlockingResponse(Response):
 def test_commit_concurrent_copy_cannot_post_twice():
     entered, release = asyncio.Event(), asyncio.Event()
     booker, prepared, session = commit_session(
-        BlockingResponse("", 302, {"Location": "/LeedsCC/BookParkingSuccess"}, entered, release),
+        BlockingResponse("", 302, {"Location": "/LeedsCC/BookParkingSuccess?permit=fixture-permit&paymentId=12345"}, entered, release),
         Response(SUCCESS),
     )
 
