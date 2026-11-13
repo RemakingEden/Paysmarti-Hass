@@ -78,3 +78,19 @@ class PermitOption:
 class StreetOption:
     id: str
     label: str
+
+
+@dataclass(frozen=True)
+class BookingContext:
+    permit_id: str
+    permit_label: str
+    street_id: str
+    street_label: str
+
+
+class DiscoveryChoiceRequired(UnexpectedPage):
+    """Setup needs a deliberate choice among currently visible options."""
+
+    def __init__(self, stage: str, path: str, options: tuple[PermitOption | StreetOption, ...]) -> None:
+        super().__init__(stage, path, code=f"{stage}_ambiguous")
+        self.options = options

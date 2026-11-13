@@ -56,3 +56,32 @@ def parse_form(html: str, expected_action: str) -> FormSnapshot:
     if not fields.get(_TOKEN):
         raise UnexpectedPage("form", expected_path, tuple(sorted(fields)), "token_missing")
     return FormSnapshot(action=str(form.get("action")), fields=fields)
+
+
+def form_options(html: str, expected_action: str, field: str) -> tuple[tuple[str, str], ...]:
+    """Read all nonempty choices for one control on the token-bearing form."""
+    expected_path = urlsplit(expected_action).path
+    soup = BeautifulSoup(html, "html.parser")
+    matches = [form for form in soup.find_all("form") if urlsplit(str(form.get("action", ""))).path == expected_path]
+    if len(matches) != 1:
+        raise UnexpectedPage("form", expected_path)
+    form = matches[0]
+    # The same form's current token is required even when reading choices.
+    parse_form(html, expected_action)
+    controls = form.select(f'[name="{field}"]')
+    if len(controls) != 1:
+        raise UnexpectedPage("form", expected_path, (field,))
+    control = controls[0]
+    if control.name == "select":
+        options = [
+            (str(option.get("value", "")).strip(), option.get_text(" ", strip=True))
+            for option in control.find_all("option") if not option.has_attr("disabled")
+        ]
+    elif control.name == "input" and control.get("type") == "hidden":
+        options = [(str(control.get("value", "")).strip(), str(control.get("data-label", "")).strip())]
+    else:
+        raise UnexpectedPage("form", expected_path, (field,))
+    valid = [(value, label) for value, label in options if value and label]
+    if len({value for value, _ in valid}) != len(valid):
+        raise UnexpectedPage("form", expected_path, (field,))
+    return tuple(valid)
