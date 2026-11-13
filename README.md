@@ -1,5 +1,7 @@
 # Paysmarti Visitor for Home Assistant
 
+Licensed under the [MIT License](LICENSE).
+
 Book a Paysmarti visitor parking session from a dedicated Home Assistant dashboard card. The integration supports saved registrations and new registrations, with optional saving when enabled in its options. It shows a confirmed receipt, a known failure, or an uncertain outcome. An uncertain outcome requires checking Paysmarti before another booking.
 
 This integration follows the observed Paysmarti browser flow. Site changes may interrupt bookings. Use it with an account and visitor permit you control.
