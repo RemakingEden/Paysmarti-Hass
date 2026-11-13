@@ -7,13 +7,13 @@ import aiohttp
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .auth import PaysmartiAuthenticator
 from .const import ALLOWED_HOSTS, DOMAIN
 from .discovery import discover_context
 from .models import AuthenticationFailed, DiscoveryChoiceRequired, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
+from .session import create_paysmarti_session
 
 _LOGGER = logging.getLogger(__name__)
 # These messages are authored in auth.py. Never log an unknown exception
@@ -105,7 +105,7 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if await self.async_set_unique_id(email):
             return self.async_show_form(step_id="user", data_schema=_ACCOUNT, errors={"base": "already_configured"})
         self._credentials = (email, user_input["password"])
-        self._session = async_create_clientsession(self.hass)
+        self._session = create_paysmarti_session(self.hass)
         try:
             await PaysmartiAuthenticator(self._session, ALLOWED_HOSTS).login(*self._credentials)
         except AuthenticationFailed as exc:
@@ -148,7 +148,7 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         email = user_input["email"].strip().lower()
         if email != entry.data["email"].lower():
             return self.async_show_form(step_id="reauth_confirm", data_schema=_ACCOUNT, errors={"base": "account_mismatch"})
-        session = async_create_clientsession(self.hass)
+        session = create_paysmarti_session(self.hass)
         try:
             await PaysmartiAuthenticator(session, ALLOWED_HOSTS).login(email, user_input["password"])
             await discover_context(session, entry.data["permit_label"], entry.data["street_label"])

@@ -67,7 +67,7 @@ def setup(monkeypatch):
     sessions = []
     FakeAuthenticator.error = None
     FakeAuthenticator.logins = []
-    monkeypatch.setattr(config_flow, "async_create_clientsession", lambda hass: sessions.append(Session()) or sessions[-1])
+    monkeypatch.setattr(config_flow, "create_paysmarti_session", lambda hass: sessions.append(Session()) or sessions[-1])
     monkeypatch.setattr(config_flow, "PaysmartiAuthenticator", FakeAuthenticator)
     context = BookingContext("p1", "Visitor", "s1", "Main Street")
 
@@ -217,7 +217,7 @@ async def test_runtime_unload_reload_and_save_default(setup, monkeypatch):
     from custom_components.paysmarti_visitor import async_setup_entry, async_unload_entry
     module, _, _ = setup
     sessions = []
-    monkeypatch.setattr("custom_components.paysmarti_visitor.async_create_clientsession", lambda hass: sessions.append(Session()) or sessions[-1])
+    monkeypatch.setattr("custom_components.paysmarti_visitor.create_paysmarti_session", lambda hass: sessions.append(Session()) or sessions[-1])
     monkeypatch.setattr("custom_components.paysmarti_visitor.PaysmartiAuthenticator", FakeAuthenticator)
     async def discover(session, permit, street):
         return BookingContext("p1", permit, "s1", street)
@@ -255,7 +255,7 @@ async def test_attempt_recovery_precedes_unavailable_login(setup, monkeypatch):
             raise OSError("site unavailable")
     monkeypatch.setattr("custom_components.paysmarti_visitor.AttemptJournal", Journal)
     monkeypatch.setattr("custom_components.paysmarti_visitor.PaysmartiAuthenticator", Authenticator)
-    monkeypatch.setattr("custom_components.paysmarti_visitor.async_create_clientsession", lambda hass: Session())
+    monkeypatch.setattr("custom_components.paysmarti_visitor.create_paysmarti_session", lambda hass: Session())
     entry = SimpleNamespace(entry_id="one", data={"email": "a@example.test", "password": "secret"}, options={})
     hass = FakeHass([entry])
     hass.config = object()

@@ -10,7 +10,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .auth import PaysmartiAuthenticator
 from .booking import PaysmartiBooker
@@ -19,6 +18,7 @@ from .discovery import discover_context
 from .models import AuthenticationFailed, BookingContext, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
 from .outcome import AttemptJournal
 from .services import async_register_services
+from .session import create_paysmarti_session
 
 
 CONFIG_SCHEMA = vol.Schema({}, extra=vol.ALLOW_EXTRA)
@@ -47,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     journal = AttemptJournal(hass, entry.entry_id) if hasattr(hass, "config") else None
     if journal is not None:
         await journal.recover_on_startup()
-    session = async_create_clientsession(hass)
+    session = create_paysmarti_session(hass)
     authenticator = PaysmartiAuthenticator(session, ALLOWED_HOSTS)
     try:
         await authenticator.login(entry.data["email"], entry.data["password"])
