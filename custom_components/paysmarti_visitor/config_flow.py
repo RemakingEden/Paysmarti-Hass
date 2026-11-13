@@ -30,6 +30,14 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._permit = None
         self._street = None
 
+    @callback
+    def async_remove(self) -> None:
+        """Release cookies if the user abandons a choice step."""
+        if self._session is not None:
+            self._session.detach()
+            self._session = None
+        super().async_remove()
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
@@ -66,7 +74,8 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         email = user_input["email"].strip().lower()
         if any(entry.data.get("email", "").lower() == email for entry in self.hass.config_entries.async_entries(DOMAIN)):
             return self.async_show_form(step_id="user", data_schema=_ACCOUNT, errors={"base": "already_configured"})
-        self.context["unique_id"] = email
+        if await self.async_set_unique_id(email):
+            return self.async_show_form(step_id="user", data_schema=_ACCOUNT, errors={"base": "already_configured"})
         self._credentials = (email, user_input["password"])
         self._session = async_create_clientsession(self.hass)
         try:
@@ -107,9 +116,12 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
         if entry is None:
             return self.async_abort(reason="account_missing")
+        email = user_input["email"].strip().lower()
+        if email != entry.data["email"].lower():
+            return self.async_show_form(step_id="reauth_confirm", data_schema=_ACCOUNT, errors={"base": "account_mismatch"})
         session = async_create_clientsession(self.hass)
         try:
-            await PaysmartiAuthenticator(session, ALLOWED_HOSTS).login(user_input["email"], user_input["password"])
+            await PaysmartiAuthenticator(session, ALLOWED_HOSTS).login(email, user_input["password"])
             await discover_context(session, entry.data["permit_label"], entry.data["street_label"])
         except AuthenticationFailed:
             return self.async_show_form(step_id="reauth_confirm", data_schema=_ACCOUNT, errors={"base": "invalid_auth"})
@@ -120,8 +132,7 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         finally:
             session.detach()
         return self.async_update_reload_and_abort(
-            entry, unique_id=user_input["email"].strip().lower(),
-            data_updates={"email": user_input["email"].strip().lower(), "password": user_input["password"]}
+            entry, data_updates={"email": email, "password": user_input["password"]}
         )
 
 

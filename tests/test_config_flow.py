@@ -43,6 +43,8 @@ class FakeHass:
             async_entries=lambda domain: self.entries,
             async_get_entry=lambda entry_id: next((e for e in self.entries if e.entry_id == entry_id), None),
             async_get_known_entry=lambda entry_id: next(e for e in self.entries if e.entry_id == entry_id),
+            async_entry_for_domain_unique_id=lambda domain, unique_id: next((e for e in self.entries if e.data["email"] == unique_id), None),
+            flow=SimpleNamespace(async_progress_by_handler=lambda *args, **kwargs: []),
             async_update_entry=self.update_entry,
             async_reload=self.reload,
             async_schedule_reload=self.reloads.append,
@@ -124,6 +126,20 @@ async def test_multiple_choices_require_explicit_selection(setup, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_abandoned_choice_flow_discards_its_cookie_session(setup, monkeypatch):
+    module, sessions, _ = setup
+    async def discover(session, permit, street):
+        raise DiscoveryChoiceRequired("permit", "/SelectPermit", (PermitOption("p1", "Visitor"), PermitOption("p2", "Guest")))
+    monkeypatch.setattr(module, "discover_context", discover)
+    configured = flow(module, FakeHass())
+    result = await configured.async_step_user({"email": "a@example.test", "password": "secret"})
+    assert result["step_id"] == "permit"
+    assert sessions[0].detached is False
+    configured.async_remove()
+    assert sessions[0].detached is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("error,code", [(AuthenticationFailed(), "invalid_auth"), (InteractiveChallenge(), "login_challenge")])
 async def test_login_error_stays_on_form(setup, error, code):
     module, sessions, _ = setup
@@ -149,11 +165,25 @@ async def test_reauth_changes_only_credentials(setup):
     entry = SimpleNamespace(entry_id="one", data={"email": "old@example.test", "password": "old", "permit_label": "Visitor", "street_label": "Main Street"}, options={}, update_listeners=[])
     hass = FakeHass([entry])
     configured = flow(module, hass, "reauth", "one")
-    result = await configured.async_step_reauth_confirm({"email": "new@example.test", "password": "new"})
+    result = await configured.async_step_reauth_confirm({"email": "old@example.test", "password": "new"})
     assert result["type"] == "abort"
     assert result["reason"] == "reauth_successful"
-    assert entry.data == {"email": "new@example.test", "password": "new", "permit_label": "Visitor", "street_label": "Main Street"}
+    assert entry.data == {"email": "old@example.test", "password": "new", "permit_label": "Visitor", "street_label": "Main Street"}
     assert hass.reloads == ["one"]
+
+
+@pytest.mark.asyncio
+async def test_reauth_rejects_different_account_before_login(setup):
+    module, sessions, _ = setup
+    entry = SimpleNamespace(entry_id="one", title="First", data={"email": "one@example.test", "password": "old", "permit_label": "Visitor", "street_label": "Main Street"}, options={})
+    other = SimpleNamespace(entry_id="two", title="Second", data={"email": "two@example.test", "password": "other", "permit_label": "Guest", "street_label": "Side Street"}, options={})
+    hass = FakeHass([entry, other])
+    result = await flow(module, hass, "reauth", "one").async_step_reauth_confirm({"email": "two@example.test", "password": "new"})
+    assert result["errors"]["base"] == "account_mismatch"
+    assert entry.data["email"] == "one@example.test"
+    assert entry.data["password"] == "old"
+    assert hass.reloads == []
+    assert sessions == []
 
 
 @pytest.mark.asyncio

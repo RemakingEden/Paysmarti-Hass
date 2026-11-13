@@ -6,7 +6,7 @@
       "street": {"title": "Choose street", "data": {"street": "Street"}},
       "reauth_confirm": {"title": "Reconnect Paysmarti", "data": {"email": "Email", "password": "Password"}}
     },
-    "error": {"invalid_auth": "Email or password was rejected", "login_challenge": "Complete the interactive challenge on Paysmarti", "cannot_connect": "Cannot connect to Paysmarti", "already_configured": "This account is already configured"},
+    "error": {"invalid_auth": "Email or password was rejected", "login_challenge": "Complete the interactive challenge on Paysmarti", "cannot_connect": "Cannot connect to Paysmarti", "already_configured": "This account is already configured", "account_mismatch": "Enter the email already configured for this account"},
     "abort": {"booking_context_changed": "Permit or street could not be verified", "account_missing": "Account no longer exists"}
   },
   "options": {"step": {"init": {"title": "Vehicle options", "data": {"enable_save_new": "Allow saving a new vehicle"}}}}
