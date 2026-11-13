@@ -14,6 +14,8 @@ from .booking import PaysmartiBooker
 from .const import ALLOWED_HOSTS
 from .discovery import discover_context
 from .models import AuthenticationFailed, BookingContext, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
+from .outcome import AttemptJournal
+from .services import async_register_services
 
 
 @dataclass
@@ -26,6 +28,8 @@ class PaysmartiRuntime:
     lock: asyncio.Lock
     session: object
     entry: ConfigEntry
+    journal: AttemptJournal | None = None
+    last_error: dict | None = None
 
     @property
     def enable_save_new(self) -> bool:
@@ -48,11 +52,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = PaysmartiRuntime(
         authenticator, context, PaysmartiBooker(session, context), asyncio.Lock(), session, entry
     )
+    if hasattr(hass, "config"):
+        entry.runtime_data.journal = AttemptJournal(hass, entry.entry_id)
+        await entry.runtime_data.journal.recover_on_startup()
+    return True
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Install entry-targeted actions once for the integration domain."""
+    await async_register_services(hass)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Discard the account's cookies on unload."""
+    if entry.runtime_data.journal is not None:
+        entry.runtime_data.journal.close()
     entry.runtime_data.session.detach()
     entry.runtime_data = None
     return True

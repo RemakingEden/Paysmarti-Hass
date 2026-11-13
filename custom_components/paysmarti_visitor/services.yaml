@@ -1,0 +1,39 @@
+list_saved_registrations:
+  name: List saved registrations
+  description: Refresh saved vehicles for a Paysmarti account.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: paysmarti_visitor
+book_visitor:
+  name: Book visitor
+  description: Submit a visitor booking after checking the current form.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: paysmarti_visitor
+    saved_vehicle_id:
+      selector:
+        text:
+    new_registration:
+      selector:
+        text:
+    save:
+      selector:
+        boolean:
+    nickname:
+      selector:
+        text:
+get_last_result:
+  name: Get last result
+  description: Show the last redacted booking outcome.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: paysmarti_visitor
