@@ -27,6 +27,24 @@ class UnexpectedPage(Exception):
         super().__init__(f"{code} at {stage}")
 
 
+class AuthenticationFailed(Exception):
+    """Credentials no longer establish a Paysmarti session."""
+
+    code = "authentication_failed"
+
+
+class InteractiveChallenge(Exception):
+    """Login requires a person to complete an additional challenge."""
+
+    code = "login_challenge"
+
+
+class UnexpectedRedirect(Exception):
+    """Authentication attempted to leave the trusted HTTPS host set."""
+
+    code = "unexpected_redirect"
+
+
 @dataclass(frozen=True)
 class BookingInput:
     saved_vehicle_id: str | None
