@@ -1,5 +1,6 @@
 """Discover permit, fixed street, and saved vehicles from live visitor forms."""
 
+import re
 from urllib.parse import urljoin, urlsplit
 
 from .auth import VISITOR_URL
@@ -60,4 +61,12 @@ async def discover_context(session, expected_permit: str | None, expected_street
 async def list_saved_vehicles(session, context: BookingContext) -> list[VehicleOption]:
     """Refresh the current Step One list after revalidating permit and street."""
     _, step_html = await _discover(session, context.permit_label, context.street_label)
-    return [VehicleOption(value, label, label) for value, label in form_options(step_html, _STEP_ONE, "VrmSelected")]
+    vehicles = []
+    for value, label in form_options(step_html, _STEP_ONE, "VrmSelected"):
+        # The verified fixture displays only the registration. Descriptive text
+        # cannot safely be split into a registration without a site-provided key.
+        # Accept only the verified standard UK plate display shape.
+        if re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z]{3}", label) is None:
+            raise UnexpectedPage("vehicle", _STEP_ONE, code="vehicle_unverifiable")
+        vehicles.append(VehicleOption(value, label, label))
+    return vehicles

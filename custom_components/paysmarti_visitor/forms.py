@@ -81,7 +81,9 @@ def form_options(html: str, expected_action: str, field: str) -> tuple[tuple[str
         options = [(str(control.get("value", "")).strip(), str(control.get("data-label", "")).strip())]
     else:
         raise UnexpectedPage("form", expected_path, (field,))
-    valid = [(value, label) for value, label in options if value and label]
+    if any(value and not label for value, label in options):
+        raise UnexpectedPage("form", expected_path, (field,))
+    valid = [(value, label) for value, label in options if value]
     if len({value for value, _ in valid}) != len(valid):
         raise UnexpectedPage("form", expected_path, (field,))
     return tuple(valid)

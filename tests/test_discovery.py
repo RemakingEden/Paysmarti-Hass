@@ -121,3 +121,32 @@ def test_duplicate_labels_are_ambiguous_even_with_configured_label():
     with pytest.raises(UnexpectedPage) as error:
         run(discover_context(Session(permit), "Fixture Visitor Permit", None))
     assert error.value.code == "permit_changed"
+
+
+def test_nonempty_permit_without_label_is_rejected_instead_of_auto_selecting_other():
+    permit = PERMIT.replace('</select>', '<option value="unlabelled-permit"></option></select>')
+    with pytest.raises(UnexpectedPage) as error:
+        run(discover_context(Session(permit), None, None))
+    assert error.value.code == "form_changed"
+
+
+def test_empty_value_placeholder_does_not_block_single_permit():
+    permit = PERMIT.replace('<option value="fixture-permit"', '<option value="">Choose a permit</option><option value="fixture-permit"')
+    context = run(discover_context(Session(permit), None, None))
+    assert context.permit_id == "fixture-permit"
+
+
+def test_saved_vehicle_with_descriptive_label_fails_closed():
+    context = run(discover_context(Session(), None, None))
+    step = STEP.replace('>AA00AAA</option>', '>AA00AAA (Family car)</option>')
+    with pytest.raises(UnexpectedPage) as error:
+        run(list_saved_vehicles(Session(step=step), context))
+    assert error.value.code == "vehicle_unverifiable"
+
+
+def test_saved_vehicle_with_bare_nickname_fails_closed():
+    context = run(discover_context(Session(), None, None))
+    step = STEP.replace('>AA00AAA</option>', '>FAMILYCAR</option>')
+    with pytest.raises(UnexpectedPage) as error:
+        run(list_saved_vehicles(Session(step=step), context))
+    assert error.value.code == "vehicle_unverifiable"
