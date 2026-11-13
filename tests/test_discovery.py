@@ -163,3 +163,24 @@ def test_saved_vehicle_normalizes_spaced_and_personalized_registrations(display,
     assert run(list_saved_vehicles(Session(step=step), context)) == [
         VehicleOption("fixture-vehicle", registration, display)
     ]
+
+
+def test_saved_vehicle_with_short_bare_alphabetic_nickname_fails_closed():
+    context = run(discover_context(Session(), None, None))
+    step = STEP.replace('>AA00AAA</option>', '>FAMILYCAR</option>')
+    with pytest.raises(UnexpectedPage) as error:
+        run(list_saved_vehicles(Session(step=step), context))
+    assert error.value.code == "vehicle_unverifiable"
+
+
+@pytest.mark.parametrize("display,registration", [
+    ("AB12CD", "AB12CD"),
+    ("a 1", "A1"),
+    ("1 abc", "1ABC"),
+])
+def test_saved_vehicle_accepts_short_alphanumeric_registrations_with_a_digit(display, registration):
+    context = run(discover_context(Session(), None, None))
+    step = STEP.replace('>AA00AAA</option>', f'>{display}</option>')
+    assert run(list_saved_vehicles(Session(step=step), context)) == [
+        VehicleOption("fixture-vehicle", registration, display)
+    ]

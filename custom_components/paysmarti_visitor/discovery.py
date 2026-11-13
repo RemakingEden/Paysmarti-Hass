@@ -66,7 +66,10 @@ async def list_saved_vehicles(session, context: BookingContext) -> list[VehicleO
         # Spaces and case are display formatting. Anything else cannot safely
         # be split into a registration without a site-provided registration key.
         registration = re.sub(r"\s+", "", label).upper()
-        if re.fullmatch(r"[A-Z0-9]{1,10}", registration) is None:
+        if (
+            re.fullmatch(r"[A-Z0-9]{1,10}", registration) is None
+            or not any(char.isdigit() for char in registration)
+        ):
             raise UnexpectedPage("vehicle", _STEP_ONE, code="vehicle_unverifiable")
         vehicles.append(VehicleOption(value, registration, label))
     return vehicles
