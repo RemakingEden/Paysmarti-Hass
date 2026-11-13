@@ -88,6 +88,17 @@ class BookingContext:
     street_label: str
 
 
+@dataclass(frozen=True)
+class PreparedBooking:
+    form: FormSnapshot
+    registration: str
+    street: str
+    permit: str
+    starts_at: datetime
+    ends_at: datetime
+    session_type: str
+
+
 class DiscoveryChoiceRequired(UnexpectedPage):
     """Setup needs a deliberate choice among currently visible options."""
 
