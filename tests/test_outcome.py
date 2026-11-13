@@ -200,14 +200,68 @@ def test_dismissed_completed_notification_stays_dismissed_after_restart():
         attempts = AttemptJournal(hass, "entry-1", store=store, notify=notices)
         attempt = await attempts.begin("***AAA")
         await attempts.finish(attempt.id, "not_booked", {"stage": "prepare"})
+        dismissed_message = notices.items[attempt.notification_id][1]
         notices.items.clear()
         async_dispatcher_send(hass, persistent_notification.SIGNAL_PERSISTENT_NOTIFICATIONS_UPDATED,
                               persistent_notification.UpdateType.REMOVED,
-                              {attempt.notification_id: {"notification_id": attempt.notification_id}})
+                              {attempt.notification_id: {"notification_id": attempt.notification_id,
+                                                         "message": dismissed_message}})
         await asyncio.gather(*hass.tasks)
         assert store.data["notification_dismissed"] is True
         await AttemptJournal(hass, "entry-1", store=store, notify=notices).recover_on_startup()
         assert notices.items == {}
+        attempts.close()
+
+    run(scenario())
+
+
+def test_old_in_progress_dismissal_cannot_hide_pending_final_outcome():
+    class FakeHass:
+        def __init__(self):
+            self.data = {}
+            self.tasks = []
+
+        def verify_event_loop_thread(self, *_):
+            pass
+
+        def async_create_task(self, coro, **_):
+            task = asyncio.create_task(coro)
+            self.tasks.append(task)
+            return task
+
+    class InterleavingStore(MemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.on_final_save = None
+
+        async def async_save(self, data):
+            await super().async_save(data)
+            if data["status"] == "not_booked" and data["notification_pending"] and self.on_final_save:
+                self.on_final_save()
+
+    async def scenario():
+        hass, store, notices = FakeHass(), InterleavingStore(), Notifications()
+        attempts = AttemptJournal(hass, "entry-1", store=store, notify=notices)
+        attempt = await attempts.begin("***AAA")
+        in_progress_message = notices.items[attempt.notification_id][1]
+
+        def dismiss_old_notification():
+            notices.items.clear()
+            notices.fail = True
+            async_dispatcher_send(hass, persistent_notification.SIGNAL_PERSISTENT_NOTIFICATIONS_UPDATED,
+                                  persistent_notification.UpdateType.REMOVED,
+                                  {attempt.notification_id: {"notification_id": attempt.notification_id,
+                                                             "message": in_progress_message}})
+
+        store.on_final_save = dismiss_old_notification
+        await attempts.finish(attempt.id, "not_booked", {"stage": "prepare"})
+        await asyncio.gather(*hass.tasks)
+        assert store.data["notification_pending"] is True
+        assert store.data["notification_dismissed"] is False
+        notices.fail = False
+        store.on_final_save = None
+        await AttemptJournal(hass, "entry-1", store=store, notify=notices).recover_on_startup()
+        assert "Not booked" in next(iter(notices.items.values()))[1]
         attempts.close()
 
     run(scenario())

@@ -27,3 +27,9 @@ The journal now provides `mask_registration(full_registration)`, which normalize
 Home Assistant persistent notifications are memory-only. Startup recreates the latest undismissed completed notification. A dispatcher listener records a dismissal tombstone in the same durable attempt record; startup leaves a dismissed completed notification hidden. The action owner should call `journal.close()` on config entry unload to remove the listener. Since only the latest attempt is retained by design, notifications from older attempts cannot be restored after Core restart.
 
 Review-fix TDD evidence: new tests first failed for missing `mask_registration`, unverified silent writes, missing booked-time validation, and missing dismissal state. Final `.venv-ha/bin/pytest tests/test_outcome.py -q`: **19 passed**. Final `.venv-ha/bin/pytest -q`: **123 passed**. Both runs show one Home Assistant dependency deprecation warning.
+
+## Dismissal race fix
+
+A later review found that the removal of an in-progress notification could arrive after the final attempt had been saved but before its final notification update succeeded. The dismissal listener previously treated the final status alone as proof that the completed notification had been displayed. It now requires `notification_pending` to be false and the removed notification's message to equal the current completed message before writing a dismissal tombstone. A focused interleaving test dispatches the old removal between final-state save and failed final notification update, then verifies startup restores the completed outcome. The pre-fix test failed because the pending flag was cleared; the fixed test passed.
+
+Final verification for this fix: `.venv-ha/bin/pytest tests/test_outcome.py -q` **20 passed**; `.venv-ha/bin/pytest -q` **124 passed**; `git diff --check` clean. Both pytest runs show one upstream Home Assistant deprecation warning.

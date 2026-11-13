@@ -131,12 +131,15 @@ class AttemptJournal:
     @callback
     def _on_notification_update(self, update_type, notifications) -> None:
         if update_type == persistent_notification.UpdateType.REMOVED:
-            self._hass.async_create_task(self._record_dismissal(frozenset(notifications)))
+            dismissed = {notification_id: notice.get("message")
+                         for notification_id, notice in notifications.items()}
+            self._hass.async_create_task(self._record_dismissal(dismissed))
 
-    async def _record_dismissal(self, notification_ids: frozenset[str]) -> None:
+    async def _record_dismissal(self, dismissed: dict[str, str | None]) -> None:
         current = await self.last()
-        if (current is None or current.notification_id not in notification_ids
-                or current.status not in _FINAL or current.notification_dismissed):
+        if (current is None or current.status not in _FINAL
+                or current.notification_pending or current.notification_dismissed
+                or dismissed.get(current.notification_id) != _message(current)):
             return
         try:
             await self._save(replace(current, notification_dismissed=True,
