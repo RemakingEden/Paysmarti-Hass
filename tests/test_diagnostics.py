@@ -34,7 +34,7 @@ async def test_diagnostics_export_only_safe_error_metadata(monkeypatch):
     state.entry = entry
     record_page_error(object(), entry, UnexpectedPage("summary", "/StepTwo?token=secret", ("Vrm", "SaveThisVrm")))
     data = await async_get_config_entry_diagnostics(None, entry)
-    assert data == {"version": "0.1.6", "stage": "summary", "code": "form_changed", "http_status": None,
+    assert data == {"version": "0.1.7", "stage": "summary", "code": "form_changed", "http_status": None,
                     "path": "/StepTwo", "field_names": ["Vrm", "SaveThisVrm"],
                     "last_attempt_status": None}
     assert secret not in str(data) and "token=secret" not in str(data)

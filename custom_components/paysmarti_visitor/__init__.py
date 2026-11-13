@@ -1,7 +1,6 @@
 """Home Assistant lifecycle for the Paysmarti visitor account."""
 
 import asyncio
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant import loader
 
 from .auth import PaysmartiAuthenticator
 from .booking import PaysmartiBooker
@@ -33,7 +33,7 @@ async def _register_dashboard_resource(hass: HomeAssistant) -> None:
         return
     resources = lovelace.resources
     await resources.async_get_info()  # Ensure the collection is loaded before reading or writing.
-    version = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+    version = (await loader.async_get_integration(hass, "paysmarti_visitor")).version
     url = f"{CARD_URL}?v={version}"
     for item in resources.async_items():
         if item.get("url", "").split("?", 1)[0] == CARD_URL:

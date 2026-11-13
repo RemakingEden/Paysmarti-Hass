@@ -7,6 +7,15 @@ import pytest
 from custom_components.paysmarti_visitor import async_setup
 
 
+@pytest.fixture(autouse=True)
+def integration_version(monkeypatch):
+    from homeassistant import loader
+
+    async def integration(hass, domain):
+        return SimpleNamespace(version="0.1.7")
+    monkeypatch.setattr(loader, "async_get_integration", integration)
+
+
 @pytest.mark.asyncio
 async def test_setup_registers_bundled_card_at_dashboard_resource_path():
     registrations = []
@@ -65,7 +74,35 @@ async def test_setup_updates_existing_card_resource_without_adding_another():
     )
     await async_setup(hass, {})
     assert len(resources) == 1
-    assert resources[0]["url"].endswith("?v=0.1.6")
+    assert resources[0]["url"].endswith("?v=0.1.7")
+
+
+@pytest.mark.asyncio
+async def test_setup_gets_resource_version_without_blocking_file_read(monkeypatch):
+    from homeassistant import loader
+
+    async def integration(hass, domain):
+        assert domain == "paysmarti_visitor"
+        return SimpleNamespace(version="0.1.7")
+    def forbidden_read(*args, **kwargs):
+        raise AssertionError("manifest file read in event loop")
+    monkeypatch.setattr(loader, "async_get_integration", integration)
+    monkeypatch.setattr(Path, "read_text", forbidden_read)
+    resources = []
+    async def register(paths):
+        pass
+    async def info():
+        return {"resources": 0}
+    async def create(item):
+        resources.append(item)
+    hass = SimpleNamespace(
+        http=SimpleNamespace(async_register_static_paths=register),
+        services=SimpleNamespace(async_register=lambda *args, **kwargs: None),
+        data={"lovelace": SimpleNamespace(resource_mode="storage", resources=SimpleNamespace(
+            async_items=lambda: resources, async_get_info=info, async_create_item=create))},
+    )
+    await async_setup(hass, {})
+    assert resources[0]["url"].endswith("?v=0.1.7")
     assert resources[0]["res_type"] == "module"
     assert resources[0]["url"].startswith("/api/paysmarti_visitor/paysmarti-visitor-card.js")
     await async_setup(hass, {})
