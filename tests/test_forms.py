@@ -84,3 +84,5 @@ def test_permit_selection_posts_to_step_one() -> None:
 
     assert form.action == "/LeedsCC/BookParking/StepOne"
     assert form.fields["__RequestVerificationToken"] == "fixture-token-permit"
+    assert form.fields["SelectedPermit"] == "fixture-permit"
+    assert "PermitId" not in form.fields

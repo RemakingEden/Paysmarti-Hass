@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 from .auth import VISITOR_URL
 from .const import VISITOR_HOST
-from .forms import form_options, parse_form
+from .forms import form_options, parse_form, permit_forms
 from .models import BookingContext, BookingInput, FormSnapshot, PreparedBooking, UnexpectedPage
 
 _STEP_ONE = "/LeedsCC/BookParking/StepOne"
@@ -129,10 +129,13 @@ class PaysmartiBooker:
             raise ValueError("Registration required")
 
         permit_html = await _page(self._session, "GET", VISITOR_URL)
-        permit_form = parse_form(permit_html, _STEP_ONE)
-        _single_option(permit_html, "PermitId", self._context.permit_id, self._context.permit_label)
+        permit_matches = [form for option, form in permit_forms(permit_html, _STEP_ONE)
+                          if (option.id, option.label) == (self._context.permit_id, self._context.permit_label)]
+        if len(permit_matches) != 1:
+            raise UnexpectedPage("permit", _STEP_ONE, code="permit_changed")
+        permit_form = permit_matches[0]
         step_html = await _page(self._session, "POST", _trusted_action(permit_form.action, _STEP_ONE),
-                                {**permit_form.fields, "PermitId": self._context.permit_id})
+                                permit_form.fields)
         step_form = parse_form(step_html, _STEP_ONE)
         _single_option(step_html, "StreetSelected", self._context.street_id, self._context.street_label)
         if step_form.fields.get("VisitorSessionType") != "DAY":
@@ -145,7 +148,11 @@ class PaysmartiBooker:
             matches = [label for value, label in options if value == request.saved_vehicle_id]
             if len(matches) != 1:
                 raise UnexpectedPage("vehicle", _STEP_ONE, code="vehicle_changed")
-            registration = re.sub(r"\s+", "", matches[0]).upper()
+            label = matches[0]
+            registration_match = re.fullmatch(r"(.+?)(?:\s+\([^()]+\))?", label)
+            if registration_match is None:
+                raise UnexpectedPage("vehicle", _STEP_ONE, code="vehicle_unverifiable")
+            registration = re.sub(r"\s+", "", registration_match.group(1)).upper()
             if re.fullmatch(r"[A-Z0-9]{1,10}", registration) is None or not any(c.isdigit() for c in registration):
                 raise UnexpectedPage("vehicle", _STEP_ONE, code="vehicle_unverifiable")
             selected = request.saved_vehicle_id or ""

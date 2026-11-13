@@ -70,6 +70,8 @@ def test_prepare_saved_vehicle_uses_current_selection_and_stops_at_step_two():
     session = Session(PERMIT, STEP, SUMMARY)
     result = prepare(session, BookingInput("fixture-vehicle", None))
     assert len(session.calls) == 3
+    assert session.calls[1][2]["SelectedPermit"] == "fixture-permit"
+    assert "PermitId" not in session.calls[1][2]
     assert session.calls[2][2]["VrmSelected"] == "fixture-vehicle"
     assert session.calls[2][2]["UseNewVrm"] == "False"
     assert result.registration == "AA00AAA"
