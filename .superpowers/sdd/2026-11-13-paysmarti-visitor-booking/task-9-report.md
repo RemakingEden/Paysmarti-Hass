@@ -23,12 +23,18 @@
 
 - Replace the `OWNER` placeholder with the published public GitHub owner before Marketplace custom-repository installation. A tagged public repository is needed for the user's server installation; neither publication nor server installation was performed here.
 - No live Paysmarti booking was made. The browser smoke check was a jsdom dashboard fixture rather than a running Home Assistant dashboard.
-- If a failed action has no new journal result, the card shows amber uncertainty instead of treating an earlier success as the new attempt. The user should check Paysmarti before retrying.
+- If a failed action leaves a known journal result unchanged, the card shows red Not booked. A failed journal read still leaves the outcome uncertain and instructs the user to check Paysmarti before retrying.
 
 ## Follow-up review fix
 
-A review found two card races. Added tests that first failed for each: a successful booking A followed by a rejected booking B replayed A's green result, and a delayed initial `get_last_result` allowed Book before restoration completed. The card now snapshots `get_last_result` immediately before every booking, compares the post-error journal result with that baseline, and shows amber uncertainty when the journal has not changed or cannot prove a new attempt. Initial restore keeps Book disabled until both startup reads finish.
+A review found two card races. Added tests that first failed for each: a successful booking A followed by a rejected booking B replayed A's green result, and a delayed initial `get_last_result` allowed Book before restoration completed. The card now snapshots `get_last_result` immediately before every booking, compares the post-error journal result with that baseline, and shows red Not booked when a known journal result is unchanged, and amber uncertainty when a journal read is unavailable. Initial restore keeps Book disabled until both startup reads finish.
 
 A third failing regression covered switching `config_entry_id` while the old saved-list request is pending. The card now clears entry-specific form state and ignores late responses from the previous entry, including pending booking responses.
 
 Fresh verification after the fix: `node --check custom_components/paysmarti_visitor/frontend/paysmarti-visitor-card.js` passed; `git diff --check` passed; `npm test` passed 12/12; `.venv-ha/bin/pytest tests/test_frontend_resource.py -q` passed 1/1; `.venv-ha/bin/pytest -q` passed 148/148 with one upstream aiohttp deprecation warning. No live requests or bookings were made.
+
+## Follow-up classification fix
+
+The controller's review identified that an unchanged, readable journal snapshot after a rejected action proves no new booking attempt reached the journal. The card now reports red **Not booked** with the safe reason `rejected_before_submission` in that case. If either journal read is unavailable, it retains amber **Outcome unknown**. A changed `commit_started` or `outcome_unknown` journal result also remains amber.
+
+Added regression tests for successful booking A followed by a pre-journal rejection B, and for a post-error journal read failure. The classification tests failed before the fix and passed after it. Fresh verification: `npm test` passed 13/13, `node --check custom_components/paysmarti_visitor/frontend/paysmarti-visitor-card.js` passed, `.venv-ha/bin/pytest tests/test_frontend_resource.py -q` passed 1/1, `.venv-ha/bin/pytest -q` passed 148/148 with one upstream aiohttp deprecation warning, and `git diff --check` passed. No live requests or bookings were made.

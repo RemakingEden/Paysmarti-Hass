@@ -109,12 +109,12 @@ test('card reopen restores last result from backend', async () => {
   card.remove(); root = await open(); assert.equal(root.querySelector('#result').dataset.kind, 'booked');
   assert.equal(calls.filter(x => x.service === 'get_last_result').length, 2);
 });
-test('a rejected booking does not replay an older green result', async () => {
+test('a rejected booking with an unchanged older result is Not booked', async () => {
   responses.get_last_result = {status:'booked',started_at:'2026-11-12T10:00:00+00:00',masked_registration:'****AAA',safe_details:{starts_at:'2026-11-12T10:00:00+00:00',ends_at:'2026-11-12T23:59:00+00:00'}};
   responses.book_visitor = () => Promise.reject(new Error('entry_unavailable'));
   const root = await open();
   change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
-  assert.equal(root.querySelector('#result').dataset.kind, 'outcome_unknown');
+  assert.equal(root.querySelector('#result').dataset.kind, 'not_booked');
 });
 test('booking B rejection cannot display booking A confirmed result', async () => {
   const root = await open();
@@ -124,7 +124,8 @@ test('booking B rejection cannot display booking A confirmed result', async () =
   responses.get_last_result = prior;
   responses.book_visitor = () => Promise.reject(new Error('entry_unavailable'));
   change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
-  assert.notEqual(root.querySelector('#result').dataset.kind, 'booked');
+  assert.equal(root.querySelector('#result').dataset.kind, 'not_booked');
+  assert.match(root.querySelector('#result').textContent, /Not booked/);
 });
 test('initial restore gates booking so a late prior result cannot overwrite a new booking', async () => {
   let release;
@@ -150,4 +151,18 @@ test('switching config entry ignores late choices from the previous entry', asyn
   releaseOld({response:list}); await flush();
   assert.match(root.querySelector('#saved').textContent, /CC00CCC/);
   assert.doesNotMatch(root.querySelector('#saved').textContent, /AA00AAA/);
+});
+
+test('failed journal read after a rejected request stays outcome unknown', async () => {
+  const root = await open();
+  let reads = 0;
+  responses.get_last_result = () => {
+    reads += 1;
+    if (reads === 1) return {response:{status:'none'}};
+    return Promise.reject(new Error('journal unavailable'));
+  };
+  responses.book_visitor = () => Promise.reject(new Error('request failed'));
+  change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
+  assert.equal(root.querySelector('#result').dataset.kind, 'outcome_unknown');
+  assert.match(root.querySelector('#result').textContent, /check Paysmarti before trying again/i);
 });

@@ -141,8 +141,11 @@
           const latest = await this._action('get_last_result');
           if (generation !== this._generation) return;
           this._lastBackendResult = JSON.stringify(latest);
-          this._showResult(latest?.status === 'none' || previousResult === null || this._lastBackendResult === previousResult
-            ? {status: 'outcome_unknown'} : latest);
+          const unchanged = previousResult !== null && this._lastBackendResult === previousResult;
+          this._showResult(unchanged
+            ? {status: 'not_booked', safe_details: {error_code: 'rejected_before_submission'}}
+            : latest?.status === 'none' || previousResult === null
+              ? {status: 'outcome_unknown'} : latest);
         } catch (_restoreError) {
           if (generation === this._generation) this._showResult({status: 'outcome_unknown'});
         }
