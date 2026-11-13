@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {"title": "Paysmarti account", "data": {"email": "Email", "password": "Password"}},
+      "permit": {"title": "Choose visitor permit", "data": {"permit": "Permit"}},
+      "street": {"title": "Choose street", "data": {"street": "Street"}},
+      "reauth_confirm": {"title": "Reconnect Paysmarti", "data": {"email": "Email", "password": "Password"}}
+    },
+    "error": {"invalid_auth": "Email or password was rejected", "login_challenge": "Complete the interactive challenge on Paysmarti", "cannot_connect": "Cannot connect to Paysmarti", "already_configured": "This account is already configured"},
+    "abort": {"booking_context_changed": "Permit or street could not be verified", "account_missing": "Account no longer exists"}
+  },
+  "options": {"step": {"init": {"title": "Vehicle options", "data": {"enable_save_new": "Allow saving a new vehicle"}}}}
+}

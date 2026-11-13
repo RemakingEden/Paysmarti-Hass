@@ -5,7 +5,8 @@ requires-python = ">=3.13"
 dependencies = ["beautifulsoup4==4.15.0"]
 
 [project.optional-dependencies]
-test = ["pytest>=8.3,<10"]
+test = ["pytest>=8.3,<10", "pytest-asyncio>=1.2,<2", "homeassistant==2026.11.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
