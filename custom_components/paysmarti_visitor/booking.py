@@ -1,4 +1,4 @@
-"""Prepare a visitor booking and stop before the final, state-changing POST."""
+"""Prepare a visitor booking and confirm it with one final POST."""
 
 import re
 from datetime import datetime, timedelta, time
@@ -10,10 +10,14 @@ from bs4 import BeautifulSoup
 from .auth import VISITOR_URL
 from .const import VISITOR_HOST
 from .forms import form_options, parse_form, permit_forms
-from .models import BookingContext, BookingInput, FormSnapshot, PreparedBooking, UnexpectedPage
+from .models import (
+    BookingContext, BookingInput, BookingReceipt, BookingRejected, FormSnapshot,
+    OutcomeUnknown, PreparedBooking, UnexpectedPage,
+)
 
 _STEP_ONE = "/LeedsCC/BookParking/StepOne"
 _STEP_TWO = "/LeedsCC/BookParking/StepTwo"
+_SUCCESS = "/LeedsCC/BookParkingSuccess"
 _LOCAL_ZONE = ZoneInfo("Europe/London")
 _PARKING = re.compile(
     r"The total charge for parking (?P<registration>[A-Z0-9 ]+)"
@@ -115,10 +119,67 @@ def _is_prompt(html: str, registration: str) -> bool:
     return bool(message and message.group(2) == f"Are you sure you wish to book parking for {registration}?")
 
 
+def _success_receipt(html: str, prepared: PreparedBooking) -> BookingReceipt:
+    soup = BeautifulSoup(html, "html.parser")
+    headings = soup.find_all("h1")
+    if len(headings) != 1 or headings[0].get_text(" ", strip=True) != "Parking booked":
+        raise ValueError("Success heading missing")
+    values: dict[str, str] = {}
+    for paragraph in soup.find_all("p"):
+        label, separator, value = paragraph.get_text(" ", strip=True).partition(":")
+        if separator and label in {"Registration", "Start", "End", "Reference"}:
+            if label in values:
+                raise ValueError("Duplicate success field")
+            values[label] = value.strip()
+    if not {"Registration", "Start", "End"}.issubset(values):
+        raise ValueError("Success details missing")
+    registration = re.sub(r"\s+", "", values["Registration"]).upper()
+    if registration != prepared.registration:
+        raise ValueError("Success registration differs")
+    start = datetime.strptime(values["Start"], "%d/%m/%Y %H:%M").replace(tzinfo=_LOCAL_ZONE)
+    end = datetime.strptime(values["End"], "%d/%m/%Y %H:%M").replace(tzinfo=_LOCAL_ZONE)
+    if start != prepared.starts_at or end != prepared.ends_at:
+        raise ValueError("Success times differ")
+    return BookingReceipt(registration, start, end, values.get("Reference") or None)
+
+
 class PaysmartiBooker:
     def __init__(self, session, context: BookingContext) -> None:
         self._session = session
         self._context = context
+        self._committed: list[PreparedBooking] = []
+
+    async def commit(self, prepared: PreparedBooking) -> BookingReceipt:
+        """Submit a prepared booking once; ambiguous post-submit results stay unknown."""
+        if any(existing is prepared for existing in self._committed):
+            raise OutcomeUnknown("This prepared booking has already been submitted")
+        try:
+            url = _trusted_action(prepared.form.action, _STEP_TWO)
+            if not prepared.form.fields.get("__RequestVerificationToken"):
+                raise ValueError("Missing verification token")
+        except (UnexpectedPage, ValueError) as exc:
+            raise BookingRejected("Prepared booking cannot be submitted") from exc
+
+        # Record before request() because a transport exception cannot prove no bytes were sent.
+        self._committed.append(prepared)
+        try:
+            async with self._session.request(
+                "POST", url, data=prepared.form.fields, allow_redirects=False, timeout=30,
+            ) as response:
+                if response.status != 302:
+                    raise ValueError("Unexpected final POST response")
+                location = response.headers.get("Location")
+                if not location:
+                    raise ValueError("Success redirect missing")
+                success_url = _trusted_action(location, _SUCCESS)
+            async with self._session.request(
+                "GET", success_url, data=None, allow_redirects=False, timeout=30,
+            ) as response:
+                if response.status != 200:
+                    raise ValueError("Success page unavailable")
+                return _success_receipt(await response.text(), prepared)
+        except Exception as exc:
+            raise OutcomeUnknown("Final booking result could not be verified") from exc
 
     async def prepare(self, request: BookingInput) -> PreparedBooking:
         """Verify the current forms and summary; never submit Step Two."""

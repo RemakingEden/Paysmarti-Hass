@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from custom_components.paysmarti_visitor.booking import PaysmartiBooker
-from custom_components.paysmarti_visitor.models import BookingContext, BookingInput, UnexpectedPage
+from custom_components.paysmarti_visitor.models import (
+    BookingContext, BookingInput, BookingRejected, OutcomeUnknown, UnexpectedPage,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -22,11 +24,10 @@ NOW = datetime(2026, 11, 13, 10, 10, tzinfo=ZoneInfo("Europe/London"))
 
 
 class Response:
-    status = 200
-    headers = {}
-
-    def __init__(self, body):
+    def __init__(self, body, status=200, headers=None):
         self.body = body
+        self.status = status
+        self.headers = headers or {}
 
     async def text(self):
         return self.body
@@ -40,12 +41,15 @@ class Response:
 
 class Session:
     def __init__(self, *bodies):
-        self.responses = deque(Response(body) for body in bodies)
+        self.responses = deque(body if isinstance(body, (Response, Exception)) else Response(body) for body in bodies)
         self.calls = []
 
     def request(self, method, url, *, data=None, allow_redirects=True, timeout=None):
         self.calls.append((method, url, data, allow_redirects, timeout))
-        return self.responses.popleft()
+        response = self.responses.popleft()
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def prepare(session, request):
@@ -224,3 +228,96 @@ def test_prepare_rejects_missing_or_ambiguous_street_label_before_booking_post(s
     with pytest.raises(UnexpectedPage):
         prepare(session, BookingInput("fixture-vehicle", None))
     assert len(session.calls) == 2
+
+
+SUCCESS = (FIXTURES / "success.html").read_text()
+SUCCESS_URL = "https://visitor.paysmarti.co.uk/LeedsCC/BookParkingSuccess"
+
+
+def commit_session(*post_results):
+    session = Session(PERMIT, STEP, SUMMARY, *post_results)
+    booker = PaysmartiBooker(session, CONTEXT)
+    prepared = asyncio.run(booker.prepare(BookingInput("fixture-vehicle", None)))
+    return booker, prepared, session
+
+
+def success_redirect(location="/LeedsCC/BookParkingSuccess"):
+    return Response("", 302, {"Location": location})
+
+
+def test_commit_posts_step_two_once_and_verifies_success_page():
+    booker, prepared, session = commit_session(success_redirect(), Response(SUCCESS))
+
+    receipt = asyncio.run(booker.commit(prepared))
+
+    assert len(session.calls) == 5
+    assert session.calls[3] == (
+        "POST", "https://visitor.paysmarti.co.uk/LeedsCC/BookParking/StepTwo",
+        prepared.form.fields, False, 30,
+    )
+    assert session.calls[4] == ("GET", SUCCESS_URL, None, False, 30)
+    assert receipt.registration == "AA00AAA"
+    assert receipt.starts_at == datetime(2026, 11, 13, 10, 5, tzinfo=ZoneInfo("Europe/London"))
+    assert receipt.ends_at == datetime(2026, 11, 13, 23, 59, tzinfo=ZoneInfo("Europe/London"))
+    assert receipt.reference == "FIXTURE-BOOKING"
+
+
+@pytest.mark.parametrize("result", [
+    TimeoutError("timed out"),
+    Response("error", 500),
+    success_redirect("https://other.example/LeedsCC/BookParkingSuccess"),
+    success_redirect("/LeedsCC/BookParkingSuccess?next=1"),
+    success_redirect("/LeedsCC/BookParking/StepTwo"),
+    Response(SUCCESS),
+])
+def test_commit_uncertain_post_never_resubmits(result):
+    booker, prepared, session = commit_session(result)
+
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(booker.commit(prepared))
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(booker.commit(prepared))
+    assert len(session.calls) == 4
+
+
+@pytest.mark.parametrize("success", [
+    SUCCESS.replace("AA00AAA", "BB00BBB"),
+    SUCCESS.replace("10:05", "10:06"),
+    SUCCESS.replace("23:59", "23:58"),
+    SUCCESS.replace("Parking booked", "Parking pending"),
+    SUCCESS.replace("Registration: AA00AAA", "Registration: "),
+])
+def test_commit_changed_success_page_is_unknown(success):
+    booker, prepared, session = commit_session(success_redirect(), Response(success))
+
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(booker.commit(prepared))
+    assert len(session.calls) == 5
+
+
+def test_commit_broken_success_get_is_unknown_without_resubmission():
+    booker, prepared, session = commit_session(success_redirect(), TimeoutError("timed out"))
+
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(booker.commit(prepared))
+    assert len(session.calls) == 5
+
+
+def test_commit_duplicate_click_after_success_does_not_post_again():
+    booker, prepared, session = commit_session(success_redirect(), Response(SUCCESS))
+    asyncio.run(booker.commit(prepared))
+
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(booker.commit(prepared))
+    assert len(session.calls) == 5
+
+
+def test_commit_rejects_invalid_prepared_action_before_post():
+    from dataclasses import replace
+
+    booker, prepared, session = commit_session()
+    invalid = replace(prepared, form=replace(prepared.form, action="https://other.example/StepTwo"))
+
+    with pytest.raises(BookingRejected):
+        asyncio.run(booker.commit(invalid))
+    assert len(session.calls) == 3

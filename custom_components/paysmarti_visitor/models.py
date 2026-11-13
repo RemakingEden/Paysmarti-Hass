@@ -45,6 +45,18 @@ class UnexpectedRedirect(Exception):
     code = "unexpected_redirect"
 
 
+class BookingRejected(Exception):
+    """The final booking POST was not sent."""
+
+    code = "booking_rejected"
+
+
+class OutcomeUnknown(Exception):
+    """The final booking POST may have been sent; do not retry automatically."""
+
+    code = "outcome_unknown"
+
+
 @dataclass(frozen=True)
 class BookingInput:
     saved_vehicle_id: str | None
