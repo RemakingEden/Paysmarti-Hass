@@ -147,11 +147,10 @@ class PaysmartiBooker:
     def __init__(self, session, context: BookingContext) -> None:
         self._session = session
         self._context = context
-        self._committed: list[PreparedBooking] = []
 
     async def commit(self, prepared: PreparedBooking) -> BookingReceipt:
         """Submit a prepared booking once; ambiguous post-submit results stay unknown."""
-        if any(existing is prepared for existing in self._committed):
+        if prepared._commit_gate.started:
             raise OutcomeUnknown("This prepared booking has already been submitted")
         try:
             url = _trusted_action(prepared.form.action, _STEP_TWO)
@@ -160,8 +159,9 @@ class PaysmartiBooker:
         except (UnexpectedPage, ValueError) as exc:
             raise BookingRejected("Prepared booking cannot be submitted") from exc
 
-        # Record before request() because a transport exception cannot prove no bytes were sent.
-        self._committed.append(prepared)
+        # This gate is shared by dataclass copies and checked before the first await.
+        # Cancellation leaves it set: the caller's commit_started journal stays unknown.
+        prepared._commit_gate.started = True
         try:
             async with self._session.request(
                 "POST", url, data=prepared.form.fields, allow_redirects=False, timeout=30,

@@ -1,6 +1,6 @@
 """Typed contracts shared by the Paysmarti visitor flow."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -100,6 +100,13 @@ class BookingContext:
     street_label: str
 
 
+class _CommitGate:
+    """Shared by copies of one prepared submission within this process."""
+
+    def __init__(self) -> None:
+        self.started = False
+
+
 @dataclass(frozen=True)
 class PreparedBooking:
     form: FormSnapshot
@@ -109,6 +116,7 @@ class PreparedBooking:
     starts_at: datetime
     ends_at: datetime
     session_type: str
+    _commit_gate: _CommitGate = field(default_factory=_CommitGate, repr=False, compare=False)
 
 
 class DiscoveryChoiceRequired(UnexpectedPage):

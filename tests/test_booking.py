@@ -2,6 +2,7 @@
 
 import asyncio
 from collections import deque
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -310,6 +311,68 @@ def test_commit_duplicate_click_after_success_does_not_post_again():
     with pytest.raises(OutcomeUnknown):
         asyncio.run(booker.commit(prepared))
     assert len(session.calls) == 5
+
+
+def test_commit_copied_preparation_and_second_booker_cannot_post_again():
+    booker, prepared, session = commit_session(success_redirect(), Response(SUCCESS))
+    copied = replace(prepared)
+    asyncio.run(booker.commit(prepared))
+
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(booker.commit(copied))
+    with pytest.raises(OutcomeUnknown):
+        asyncio.run(PaysmartiBooker(session, CONTEXT).commit(copied))
+    assert len(session.calls) == 5
+
+
+class BlockingResponse(Response):
+    def __init__(self, body, status, headers, entered, release):
+        super().__init__(body, status, headers)
+        self.entered = entered
+        self.release = release
+
+    async def __aenter__(self):
+        self.entered.set()
+        await self.release.wait()
+        return self
+
+
+def test_commit_concurrent_copy_cannot_post_twice():
+    entered, release = asyncio.Event(), asyncio.Event()
+    booker, prepared, session = commit_session(
+        BlockingResponse("", 302, {"Location": "/LeedsCC/BookParkingSuccess"}, entered, release),
+        Response(SUCCESS),
+    )
+
+    async def scenario():
+        first = asyncio.create_task(booker.commit(prepared))
+        await entered.wait()
+        with pytest.raises(OutcomeUnknown):
+            await PaysmartiBooker(session, CONTEXT).commit(replace(prepared))
+        release.set()
+        assert (await first).registration == "AA00AAA"
+        assert len(session.calls) == 5
+
+    asyncio.run(scenario())
+
+
+def test_commit_cancellation_after_post_starts_preserves_cancellation_and_blocks_retry():
+    entered, release = asyncio.Event(), asyncio.Event()
+    booker, prepared, session = commit_session(
+        BlockingResponse("", 302, {"Location": "/LeedsCC/BookParkingSuccess"}, entered, release),
+    )
+
+    async def scenario():
+        first = asyncio.create_task(booker.commit(prepared))
+        await entered.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        with pytest.raises(OutcomeUnknown):
+            await PaysmartiBooker(session, CONTEXT).commit(replace(prepared))
+        assert len(session.calls) == 4
+
+    asyncio.run(scenario())
 
 
 def test_commit_rejects_invalid_prepared_action_before_post():
