@@ -8,7 +8,7 @@ This integration follows the observed Paysmarti browser flow. Site changes may i
 
 ## Install on your Home Assistant server
 
-**Public repository URL:** `https://github.com/RemakingEden/Paysmarti-Hass`. The repository must be public for Marketplace custom-repository installation. A published GitHub release is recommended for clear versioned updates; without one, Marketplace uses the latest default-branch commit. There is no separate card download or file copy.
+**Public repository URL:** `https://github.com/RemakingEden/Paysmarti-Hass`. The repository must be public for Marketplace custom-repository installation. Published releases use the same version as the integration manifest, so Marketplace can show versioned updates. There is no separate card download or file copy.
 
 1. On your Home Assistant **server**, install and open Home Assistant Marketplace (formerly HACS). In **Custom repositories**, add the published repository URL above as an **Integration** repository.
 2. Find **Paysmarti Visitor** in Marketplace, download it, and restart Home Assistant. The integration package includes the dashboard card JavaScript.
@@ -37,7 +37,7 @@ Run this checklist only when you choose to make one real visitor booking. The lo
 
 ## Update and troubleshoot
 
-Update **Paysmarti Visitor** from Marketplace on the Home Assistant server, restart Home Assistant, and reload the dashboard to refresh the card resource. If the card still uses an older file, clear the browser's cached dashboard resources and reload. A changed Paysmarti form can create a Home Assistant Repair issue; review it and update the integration before retrying. If the card reports **Outcome unknown**, check the Paysmarti site for the booking before making another attempt.
+Update **Paysmarti Visitor** under **Settings → Updates** on the Home Assistant server after Marketplace discovers a new GitHub release. If no update appears yet, open its page under **Settings → Marketplace** to refresh repository information, then check Updates again. Restart Home Assistant after the update, and reload the dashboard to refresh the card resource. If the card still uses an older file, clear the browser's cached dashboard resources and reload. A changed Paysmarti form can create a Home Assistant Repair issue; review it and update the integration before retrying. If the card reports **Outcome unknown**, check the Paysmarti site for the booking before making another attempt.
 
 For setup failures, open **Settings → System → Logs**, select **Home Assistant Core**, and search for `paysmarti`. Use **⋮ → Show raw logs** if the condensed view has no match. A failed initial setup has no config entry yet, so its integration debug menu and diagnostics are unavailable. Recent versions log a safe reason for `invalid_auth` without logging the email, password, cookies, tokens, or response body. `invalid_auth` can also mean the site's login flow changed; it does not by itself prove the password is wrong.
 
