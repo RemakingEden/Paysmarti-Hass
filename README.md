@@ -1,0 +1,34 @@
+# Paysmarti Visitor for Home Assistant
+
+Book a Paysmarti visitor parking session from a dedicated Home Assistant dashboard card. The integration supports saved registrations and new registrations, with optional saving when enabled in its options. It shows a confirmed receipt, a known failure, or an uncertain outcome. An uncertain outcome requires checking Paysmarti before another booking.
+
+This integration follows the observed Paysmarti browser flow. Site changes may interrupt bookings. Use it with an account and visitor permit you control.
+
+## Install on your Home Assistant server
+
+**Public repository URL:** `https://github.com/OWNER/hass-visitors-pass` (**placeholder; replace `OWNER` with the published GitHub owner before installation**). The repository must be public and contain a release/tag before the Marketplace custom repository can install it. There is no separate card download or file copy.
+
+1. On your Home Assistant **server**, install and open Home Assistant Marketplace (formerly HACS). In **Custom repositories**, add the published repository URL above as an **Integration** repository.
+2. Find **Paysmarti Visitor** in Marketplace, download it, and restart Home Assistant. The integration package includes the dashboard card JavaScript.
+3. Go to **Settings → Devices & services → Add integration**, search for **Paysmarti Visitor**, and complete the config flow with your Paysmarti account. Select the intended permit and street when prompted. Copy the integration's **config entry ID** from the entry URL/details for the card configuration.
+4. Add a dashboard resource in **Settings → Dashboards → Resources** (enable advanced mode if Resources is hidden): URL `/api/paysmarti_visitor/paysmarti-visitor-card.js`, type **JavaScript module**. Register it once for the dashboard, then reload the browser page.
+5. Edit the desired dashboard and add a **Manual** card:
+
+   ```yaml
+   type: custom:paysmarti-visitor-card
+   config_entry_id: YOUR_CONFIG_ENTRY_ID
+   ```
+
+The card loads saved registrations when opened. Entering nonempty new text overrides the saved dropdown; the effective registration appears above **Book**. The Save checkbox appears only when a new registration is entered and **Enable saving new registrations** is turned on in integration options. Saving is off by default. Check the effective registration before selecting **Book**.
+
+**Action permissions:** Anyone in Home Assistant who can run the `paysmarti_visitor.book_visitor` action for this config entry can create a real permit booking, including from the Actions interface without the card. Restrict access to trusted Home Assistant users and automations. The card does not store a typed registration in an entity state or browser storage. The integration stores a masked last attempt and leaves its persistent notification until dismissed.
+
+## Update and troubleshoot
+
+Update **Paysmarti Visitor** from Marketplace on the Home Assistant server, restart Home Assistant, and reload the dashboard to refresh the card resource. If the card still uses an older file, clear the browser's cached dashboard resources and reload. A changed Paysmarti form can create a Home Assistant Repair issue; review it and update the integration before retrying. If the card reports **Outcome unknown**, check the Paysmarti site for the booking before making another attempt.
+
+For a support report, download the integration's **Diagnostics** from **Settings → Devices & services → Paysmarti Visitor → ⋮ → Download diagnostics**. It contains only version, stage, error code, HTTP status, path without query, form field names, and last masked attempt status. Review the downloaded file before sharing. If a maintainer needs a fresh browser-flow capture, reproduce only with a disposable or controlled account and redact credentials, cookies, tokens, full registrations, names, addresses, query strings, and page bodies before sharing; never attach an unredacted HAR or screenshot.
+
+## Development
+
+Run `.venv-ha/bin/pytest -q` for Python tests and `npm ci && npm test` for the dashboard card tests. The card is a vanilla JavaScript module bundled under `custom_components/paysmarti_visitor/frontend/`; the integration serves it at the dashboard resource path above.

@@ -1,0 +1,6 @@
+{
+  "name": "hass-visitors-pass-card-tests",
+  "private": true,
+  "scripts": {"test": "node --test tests_frontend/*.test.js"},
+  "devDependencies": {"jsdom": "^26.1.0"}
+}

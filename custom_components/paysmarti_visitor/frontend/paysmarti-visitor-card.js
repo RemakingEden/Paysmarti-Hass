@@ -1,0 +1,222 @@
+/* Paysmarti Visitor dashboard card. All form values live only in this element. */
+(() => {
+  const DOMAIN = 'paysmarti_visitor';
+  const normalized = value => value.replace(/\s+/g, '').toUpperCase();
+  const timestamp = value => value ? new Date(value).toLocaleString() : '';
+
+  class PaysmartiVisitorCard extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({mode: 'open'});
+      this._busy = false;
+      this._canSave = false;
+      this._vehicles = [];
+      this._loadedFor = null;
+      this._render();
+    }
+
+    setConfig(config) {
+      if (!config?.config_entry_id || typeof config.config_entry_id !== 'string') {
+        throw new Error('Paysmarti Visitor card requires config_entry_id');
+      }
+      this._entryId = config.config_entry_id;
+      this._loadedFor = null;
+      this._load();
+    }
+
+    set hass(value) {
+      this._hass = value;
+      this._load();
+    }
+
+    getCardSize() { return 5; }
+
+    async _action(service, data = {}) {
+      const result = await this._hass.callWS({
+        type: 'call_service', domain: DOMAIN, service,
+        service_data: {config_entry_id: this._entryId, ...data}, return_response: true,
+      });
+      return result.response;
+    }
+
+    async _load() {
+      if (!this._entryId || !this._hass || this._loadedFor === this._entryId) return;
+      this._loadedFor = this._entryId;
+      await Promise.all([this._refresh(), this._restore()]);
+    }
+
+    async _refresh() {
+      if (!this._hass || this._busy) return;
+      this._busy = true;
+      this._update();
+      try {
+        const data = await this._action('list_saved_registrations');
+        this._vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
+        this._canSave = data?.can_save_new === true;
+        const selected = this._saved.value;
+        this._saved.replaceChildren(new Option('Choose saved registration', ''));
+        for (const vehicle of this._vehicles) {
+          this._saved.add(new Option(vehicle.label, vehicle.id));
+        }
+        if (this._vehicles.some(vehicle => vehicle.id === selected)) this._saved.value = selected;
+        this._listError.textContent = '';
+      } catch (_error) {
+        this._listError.textContent = 'Saved registrations could not be loaded. Select Refresh to try again.';
+      } finally {
+        this._busy = false;
+        this._update();
+      }
+    }
+
+    async _restore() {
+      try {
+        const latest = await this._action('get_last_result');
+        this._lastBackendResult = JSON.stringify(latest);
+        this._showResult(latest);
+      } catch (_error) {
+        this._showResult({status: 'outcome_unknown'});
+      }
+    }
+
+    async _book() {
+      if (this._busy || this._bookButton.disabled) return;
+      const registration = normalized(this._new.value);
+      const selected = this._saved.value;
+      const data = registration
+        ? {new_registration: registration, save: this._canSave && this._save.checked}
+        : {saved_vehicle_id: selected};
+      if (data.save && this._nickname.value.trim()) data.nickname = this._nickname.value.trim();
+      const previousResult = this._lastBackendResult;
+      this._busy = true;
+      this._showResult({status: 'preparing'});
+      this._update();
+      try {
+        const receipt = await this._action('book_visitor', data);
+        this._showResult({status: 'booked', registration: receipt.registration,
+          safe_details: {starts_at: receipt.starts_at, ends_at: receipt.ends_at},
+          reference: receipt.reference, refresh_warning: receipt.refresh_warning});
+        this._new.value = '';
+        this._save.checked = false;
+        this._nickname.value = '';
+      } catch (_error) {
+        // The journal is authoritative: an exception alone cannot identify the POST boundary.
+        try {
+          const latest = await this._action('get_last_result');
+          this._lastBackendResult = JSON.stringify(latest);
+          this._showResult(latest?.status === 'none' || this._lastBackendResult === previousResult
+            ? {status: 'outcome_unknown'} : latest);
+        } catch (_restoreError) {
+          this._showResult({status: 'outcome_unknown'});
+        }
+      } finally {
+        this._busy = false;
+        this._update();
+      }
+      if (data.save && this._result.dataset.kind === 'booked') await this._refresh();
+    }
+
+    _showResult(result) {
+      const panel = this._result;
+      panel.replaceChildren();
+      panel.dataset.kind = result?.status || 'none';
+      if (!result || result.status === 'none') {
+        panel.hidden = true;
+        return;
+      }
+      panel.hidden = false;
+      const heading = document.createElement('strong');
+      const detail = document.createElement('div');
+      const safe = result.safe_details || {};
+      if (result.status === 'booked') {
+        heading.textContent = 'Booked';
+        const parts = [result.registration || result.masked_registration,
+          timestamp(safe.starts_at), timestamp(safe.ends_at), result.reference ? `Reference: ${result.reference}` : ''].filter(Boolean);
+        detail.textContent = parts.join(' · ');
+        if (result.refresh_warning) detail.textContent += ' · Saved list refresh failed; select Refresh.';
+      } else if (result.status === 'not_booked') {
+        heading.textContent = 'Not booked';
+        detail.textContent = `The final booking was not completed. ${safe.error_code ? `Reason: ${safe.error_code.replace(/_/g, ' ')}. ` : ''}Correct the input or refresh and try again.`;
+      } else if (result.status === 'outcome_unknown' || result.status === 'commit_started') {
+        heading.textContent = 'Outcome unknown';
+        detail.textContent = 'Check Paysmarti before trying again. The booking request may have been submitted.';
+      } else {
+        heading.textContent = 'Booking in progress';
+        detail.textContent = 'Waiting for the booking result.';
+      }
+      panel.append(heading, detail);
+    }
+
+    _update() {
+      const entered = this._new.value.trim();
+      const registration = normalized(entered);
+      const valid = !entered || /^[A-Z0-9]{1,10}$/.test(registration);
+      const chosen = this._vehicles.find(vehicle => vehicle.id === this._saved.value);
+      const effective = entered ? registration : chosen?.registration;
+      this._effective.textContent = effective ? `Effective registration: ${effective}` : 'Choose or enter a registration';
+      this._validation.textContent = valid ? '' : 'Use 1–10 letters and numbers for a new registration.';
+      this._saveRow.hidden = !this._canSave || !entered;
+      if (this._saveRow.hidden) {
+        this._save.checked = false;
+        this._nickname.value = '';
+      }
+      this._nicknameRow.hidden = this._saveRow.hidden || !this._save.checked;
+      if (this._nicknameRow.hidden) this._nickname.value = '';
+      this._bookButton.disabled = this._busy || !valid || !effective;
+      this._refreshButton.disabled = this._busy;
+      this._saved.disabled = this._busy;
+      this._new.disabled = this._busy;
+      this._save.disabled = this._busy;
+      this._nickname.disabled = this._busy;
+    }
+
+    _render() {
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host { display:block; color:var(--primary-text-color, #222); }
+          ha-card { display:block; padding:20px; background:var(--card-background-color, white); border-radius:12px; box-shadow:var(--ha-card-box-shadow, 0 2px 6px #0002); }
+          h2 { margin:0 0 16px; font-size:1.25rem; }
+          label { display:block; margin:12px 0 4px; font-weight:600; }
+          input:not([type=checkbox]), select { box-sizing:border-box; width:100%; min-height:40px; padding:8px; border:1px solid var(--divider-color, #888); border-radius:6px; background:var(--card-background-color, white); color:inherit; font:inherit; }
+          .check { display:flex; align-items:center; gap:8px; font-weight:normal; }
+          .actions { display:flex; gap:8px; margin-top:14px; }
+          button { min-height:40px; padding:8px 16px; border:0; border-radius:6px; font:inherit; cursor:pointer; }
+          button:disabled { opacity:.55; cursor:default; }
+          #book { background:var(--primary-color, #21618c); color:white; }
+          #refresh { background:var(--secondary-background-color, #eee); color:inherit; }
+          #effective { margin-top:14px; font-weight:600; }
+          #validation, #list-error { color:var(--error-color, #b00020); }
+          #result { margin-top:18px; padding:14px; border-radius:6px; border:2px solid; }
+          #result[hidden], [hidden] { display:none !important; }
+          #result[data-kind=booked] { border-color:#278a44; background:#e8f5e9; color:#124522; }
+          #result[data-kind=not_booked] { border-color:#c62828; background:#ffebee; color:#7f1212; }
+          #result[data-kind=outcome_unknown], #result[data-kind=commit_started] { border-color:#b87300; background:#fff3cd; color:#624000; }
+          #result[data-kind=preparing] { border-color:#4d6f95; background:#eaf2fa; color:#1c3956; }
+          #result strong { display:block; margin-bottom:6px; }
+        </style>
+        <ha-card><h2>Paysmarti Visitor</h2>
+          <label for="saved">Saved registration</label><select id="saved"><option value="">Choose saved registration</option></select>
+          <label for="new">New registration</label><input id="new" type="text" autocomplete="off" maxlength="20" autocapitalize="characters" spellcheck="false">
+          <div id="validation" role="alert"></div>
+          <div id="save-row" hidden><label class="check"><input id="save" type="checkbox"> Save this registration</label></div>
+          <div id="nickname-row" hidden><label for="nickname">Nickname (optional)</label><input id="nickname" type="text" autocomplete="off"></div>
+          <div id="effective" aria-live="polite"></div>
+          <div class="actions"><button id="book" type="button">Book</button><button id="refresh" type="button">Refresh</button></div>
+          <div id="list-error" role="alert"></div>
+          <div id="result" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+        </ha-card>`;
+      const q = selector => this.shadowRoot.querySelector(selector);
+      this._saved = q('#saved'); this._new = q('#new'); this._save = q('#save');
+      this._nickname = q('#nickname'); this._saveRow = q('#save-row'); this._nicknameRow = q('#nickname-row');
+      this._bookButton = q('#book'); this._refreshButton = q('#refresh');
+      this._effective = q('#effective'); this._validation = q('#validation');
+      this._listError = q('#list-error'); this._result = q('#result');
+      this._saved.addEventListener('change', () => this._update());
+      this._new.addEventListener('input', () => this._update());
+      this._save.addEventListener('change', () => this._update());
+      this._bookButton.addEventListener('click', () => this._book());
+      this._refreshButton.addEventListener('click', () => this._refresh());
+      this._update();
+    }
+  }
+  customElements.define('paysmarti-visitor-card', PaysmartiVisitorCard);
+})();

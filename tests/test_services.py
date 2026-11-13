@@ -316,7 +316,10 @@ async def test_actions_are_registered_with_entry_target_and_response():
         registered[name] = (handler, schema, supports_response)
 
     state = runtime()
+    async def register_paths(paths):
+        pass
     hass = SimpleNamespace(
+        http=SimpleNamespace(async_register_static_paths=register_paths),
         services=SimpleNamespace(async_register=register),
         config_entries=SimpleNamespace(async_get_entry=lambda entry_id: state.entry if entry_id == "one" else None),
     )

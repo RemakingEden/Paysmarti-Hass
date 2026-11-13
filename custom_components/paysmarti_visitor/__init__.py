@@ -2,10 +2,12 @@
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -61,6 +63,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Install entry-targeted actions once for the integration domain."""
     await async_register_services(hass)
+    await hass.http.async_register_static_paths([StaticPathConfig(
+        "/api/paysmarti_visitor/paysmarti-visitor-card.js",
+        str(Path(__file__).parent / "frontend" / "paysmarti-visitor-card.js"),
+        cache_headers=False,
+    )])
     return True
 
 
