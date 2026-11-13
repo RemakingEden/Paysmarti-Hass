@@ -1,5 +1,6 @@
 """Bounded Paysmarti login and visitor-site federation handoff."""
 
+import logging
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -13,6 +14,16 @@ LOGIN_PAGE_PATH = "/login/LeedsCC/"
 VISITOR_URL = f"https://{VISITOR_HOST}/LeedsCC/BookParking/SelectPermit"
 _MAX_HOPS = 12
 _CHALLENGE_MARKERS = ("captcha", "multi-factor", "multifactor", "verification code", "one-time code", "two-factor")
+_LOGGER = logging.getLogger(__name__)
+_SAFE_ROUTES = {
+    (LOGIN_HOST, "/login/LeedsCC/Home"): "credential submit",
+    (LOGIN_HOST, LOGIN_PAGE_PATH): "identity handoff",
+    (LOGIN_HOST, "/acct/LeedsCC/"): "account session",
+    (VISITOR_HOST, "/LeedsCC"): "visitor handoff",
+    (VISITOR_HOST, "/LeedsCC/"): "visitor entry",
+    (VISITOR_HOST, "/leedscc/"): "visitor entry",
+    (VISITOR_HOST, "/LeedsCC/BookParking/SelectPermit"): "visitor permit",
+}
 
 
 class _ExpiredSession(Exception):
@@ -41,6 +52,10 @@ class PaysmartiAuthenticator:
     async def _request(self, method: str, url: str, data: dict[str, str] | None = None, *, headers: dict[str, str] | None = None):
         url = self._trusted(url, url)
         async with self._session.request(method, url, data=data, headers=headers, allow_redirects=False, timeout=30) as response:
+            if response.status != 200 and not 300 <= response.status < 400:
+                parts = urlsplit(url)
+                route = _SAFE_ROUTES.get((parts.hostname, parts.path), "other trusted route")
+                _LOGGER.warning("Paysmarti authentication %s %s returned HTTP %s", method, route, response.status)
             return response.status, await response.text(), response.headers.get("Location")
 
     @staticmethod
@@ -119,7 +134,7 @@ class PaysmartiAuthenticator:
         if status != 200:
             raise AuthenticationFailed("Login page unavailable")
         self._challenge(html)
-        fields = {"email": email, "password": password}
+        fields = {"email": email, "password": password, "returnUrl": ""}
         status, html, location = await self._request("POST", LOGIN_URL, fields,
             headers={"Origin": f"https://{LOGIN_HOST}", "Referer": login_page})
         await self._advance(LOGIN_URL, status, html, location, visitor=False)

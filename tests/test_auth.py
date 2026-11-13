@@ -116,7 +116,7 @@ async def test_login_posts_fresh_form_and_completes_account_and_visitor_handoffs
     await PaysmartiAuthenticator(session, HOSTS).login("user@example.test", "private-password")
 
     assert not session.queue
-    assert session.calls[2][2] == {"email": "user@example.test", "password": "private-password"}
+    assert session.calls[2][2] == {"email": "user@example.test", "password": "private-password", "returnUrl": ""}
     assert session.calls[4][2]["wresult"] == "sanitized-ticket"
     assert session.calls[8][2]["wresult"] == "fresh-visitor-ticket"
     assert session.cookies["visitor-session"] == "fresh-cookie"
@@ -193,6 +193,26 @@ async def test_rejects_untrusted_login_handoff_before_sending_credentials(locati
         await PaysmartiAuthenticator(session, HOSTS).login("user@example.test", "private-password")
 
     assert [url for _, url, _ in session.calls] == [VISITOR]
+
+
+@async_test
+async def test_failed_handoff_logs_status_and_safe_stage_without_credentials(caplog):
+    account_page = "https://permits.paysmarti.co.uk/acct/LeedsCC/"
+    session = Session(
+        step("GET", VISITOR, status=302, location=LOGIN_PAGE),
+        step("GET", LOGIN_PAGE, body=LOGIN_HTML),
+        step("POST", LOGIN, status=302, location=account_page),
+        step("GET", account_page, status=503, body="private response body"),
+    )
+
+    with pytest.raises(AuthenticationFailed):
+        await PaysmartiAuthenticator(session, HOSTS).login("user@example.test", "private-password")
+
+    assert "HTTP 503" in caplog.text
+    assert "account session" in caplog.text
+    assert "private-password" not in caplog.text
+    assert "private response body" not in caplog.text
+    assert "fresh-context" not in caplog.text
 
 
 @async_test
