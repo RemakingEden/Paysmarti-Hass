@@ -115,6 +115,7 @@ class AttemptJournal:
             hass, 1, f"paysmarti_visitor.{entry_id}.last_attempt", atomic_writes=True
         )
         self._notify = notify if notify is not None else persistent_notification.async_create
+        self._notification_lock = asyncio.Lock()
         self._unsub_notification = None
         if hasattr(hass, "data") and hasattr(hass, "async_create_task"):
             self._unsub_notification = async_dispatcher_connect(
@@ -136,16 +137,17 @@ class AttemptJournal:
             self._hass.async_create_task(self._record_dismissal(dismissed))
 
     async def _record_dismissal(self, dismissed: dict[str, str | None]) -> None:
-        current = await self.last()
-        if (current is None or current.status not in _FINAL
-                or current.notification_pending or current.notification_dismissed
-                or dismissed.get(current.notification_id) != _message(current)):
-            return
-        try:
-            await self._save(replace(current, notification_dismissed=True,
-                                     notification_pending=False))
-        except OSError:
-            _LOGGER.warning("Could not record booking notification dismissal")
+        async with self._notification_lock:
+            current = await self.last()
+            if (current is None or current.status not in _FINAL
+                    or current.notification_dismissed
+                    or dismissed.get(current.notification_id) != _message(current)):
+                return
+            try:
+                await self._save(replace(current, notification_dismissed=True,
+                                         notification_pending=False))
+            except OSError:
+                _LOGGER.warning("Could not record booking notification dismissal")
 
     async def last(self) -> Attempt | None:
         data = await self._store.async_load()
@@ -171,8 +173,9 @@ class AttemptJournal:
                      notification_id=attempt.notification_id)
 
     async def _notify_and_clear(self, attempt: Attempt) -> None:
-        self._update_notification(attempt)
-        await self._save(replace(attempt, notification_pending=False))
+        async with self._notification_lock:
+            self._update_notification(attempt)
+            await self._save(replace(attempt, notification_pending=False))
 
     async def begin(self, masked_registration: str) -> Attempt:
         """Return only after the initial record and notification both exist."""

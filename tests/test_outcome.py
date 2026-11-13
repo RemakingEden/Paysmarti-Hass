@@ -267,6 +267,60 @@ def test_old_in_progress_dismissal_cannot_hide_pending_final_outcome():
     run(scenario())
 
 
+def test_final_notice_dismissal_during_pending_clear_survives_restart():
+    class FakeHass:
+        def __init__(self):
+            self.data = {}
+            self.tasks = []
+
+        def verify_event_loop_thread(self, *_):
+            pass
+
+        def async_create_task(self, coro, **_):
+            task = asyncio.create_task(coro)
+            self.tasks.append(task)
+            return task
+
+    class PausedStore(MemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.pause_final_clear = False
+            self.clear_entered = asyncio.Event()
+            self.release_clear = asyncio.Event()
+
+        async def async_save(self, data):
+            if (self.pause_final_clear and data["status"] == "not_booked"
+                    and not data["notification_pending"] and not data["notification_dismissed"]):
+                self.clear_entered.set()
+                await self.release_clear.wait()
+            await super().async_save(data)
+
+    async def scenario():
+        hass, store, notices = FakeHass(), PausedStore(), Notifications()
+        attempts = AttemptJournal(hass, "entry-1", store=store, notify=notices)
+        attempt = await attempts.begin("***AAA")
+        store.pause_final_clear = True
+        finishing = asyncio.create_task(attempts.finish(attempt.id, "not_booked", {"stage": "prepare"}))
+        await store.clear_entered.wait()
+        final_message = notices.items.pop(attempt.notification_id)[1]
+        assert "Not booked" in final_message
+        async_dispatcher_send(hass, persistent_notification.SIGNAL_PERSISTENT_NOTIFICATIONS_UPDATED,
+                              persistent_notification.UpdateType.REMOVED,
+                              {attempt.notification_id: {"notification_id": attempt.notification_id,
+                                                         "message": final_message}})
+        await asyncio.sleep(0)
+        store.release_clear.set()
+        await finishing
+        await asyncio.gather(*hass.tasks)
+        assert store.data["notification_dismissed"] is True
+        store.pause_final_clear = False
+        await AttemptJournal(hass, "entry-1", store=store, notify=notices).recover_on_startup()
+        assert notices.items == {}
+        attempts.close()
+
+    run(scenario())
+
+
 def test_booked_requires_verified_times_and_shows_them():
     store, notices = MemoryStore(), Notifications()
     attempts = journal(store, notices)
