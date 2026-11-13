@@ -141,13 +141,25 @@ async def test_abandoned_choice_flow_discards_its_cookie_session(setup, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error,code", [(AuthenticationFailed(), "invalid_auth"), (InteractiveChallenge(), "login_challenge")])
-async def test_login_error_stays_on_form(setup, error, code):
+async def test_login_error_stays_on_form(setup, error, code, caplog):
     module, sessions, _ = setup
     FakeAuthenticator.error = error
     result = await flow(module, FakeHass()).async_step_user({"email": "a@example.test", "password": "bad"})
     assert result["type"] == "form"
     assert result["errors"]["base"] == code
     assert sessions[0].detached
+    if isinstance(error, AuthenticationFailed):
+        assert "Paysmarti authentication failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_login_failure_log_never_echoes_untrusted_details(setup, caplog):
+    module, _, _ = setup
+    FakeAuthenticator.error = AuthenticationFailed("secret-from-server")
+    result = await flow(module, FakeHass()).async_step_user({"email": "a@example.test", "password": "secret"})
+    assert result["errors"]["base"] == "invalid_auth"
+    assert "secret-from-server" not in caplog.text
+    assert "secret" not in caplog.text
 
 
 @pytest.mark.asyncio

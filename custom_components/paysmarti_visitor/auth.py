@@ -1,14 +1,15 @@
 """Bounded Paysmarti login and visitor-site federation handoff."""
 
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
 from .const import LOGIN_HOST, VISITOR_HOST
-from .forms import parse_form, permit_forms
+from .forms import permit_forms
 from .models import AuthenticationFailed, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
 
 LOGIN_URL = f"https://{LOGIN_HOST}/login/LeedsCC/Home"
+LOGIN_PAGE_PATH = "/login/LeedsCC/"
 VISITOR_URL = f"https://{VISITOR_HOST}/LeedsCC/BookParking/SelectPermit"
 _MAX_HOPS = 12
 _CHALLENGE_MARKERS = ("captcha", "multi-factor", "multifactor", "verification code", "one-time code", "two-factor")
@@ -37,9 +38,9 @@ class PaysmartiAuthenticator:
             raise UnexpectedRedirect("Authentication target is outside the allowed HTTPS hosts")
         return url
 
-    async def _request(self, method: str, url: str, data: dict[str, str] | None = None):
+    async def _request(self, method: str, url: str, data: dict[str, str] | None = None, *, headers: dict[str, str] | None = None):
         url = self._trusted(url, url)
-        async with self._session.request(method, url, data=data, allow_redirects=False, timeout=30) as response:
+        async with self._session.request(method, url, data=data, headers=headers, allow_redirects=False, timeout=30) as response:
             return response.status, await response.text(), response.headers.get("Location")
 
     @staticmethod
@@ -84,6 +85,8 @@ class PaysmartiAuthenticator:
                 url = target
                 status, html, location = await self._request("POST", url, fields)
                 continue
+            if visitor and urlsplit(url).hostname == LOGIN_HOST and urlsplit(url).path == LOGIN_PAGE_PATH:
+                raise _ExpiredSession
             if urlsplit(url).path == urlsplit(LOGIN_URL).path and urlsplit(url).hostname == LOGIN_HOST:
                 raise AuthenticationFailed("Login did not establish a session")
             if visitor and (urlsplit(url).hostname != VISITOR_HOST or urlsplit(url).path != urlsplit(VISITOR_URL).path):
@@ -101,18 +104,25 @@ class PaysmartiAuthenticator:
         raise AuthenticationFailed("Authentication handoff exceeded redirect limit")
 
     async def _login_account(self, email: str, password: str) -> None:
-        status, html, _ = await self._request("GET", LOGIN_URL)
+        # The browser reaches the login page through the visitor site's
+        # federation redirect. /login/LeedsCC/Home is its POST endpoint; a
+        # direct GET there returns a server error and is not a login form.
+        status, _, location = await self._request("GET", VISITOR_URL)
+        if not 300 <= status < 400 or not location:
+            raise AuthenticationFailed("Login handoff unavailable")
+        login_page = self._trusted(VISITOR_URL, location)
+        parts = urlsplit(login_page)
+        query = parse_qs(parts.query)
+        if parts.hostname != LOGIN_HOST or parts.path != LOGIN_PAGE_PATH or query.get("wa") != ["wsignin1.0"] or not all(query.get(key) for key in ("wctx", "wreply", "wtrealm")):
+            raise UnexpectedRedirect("Unexpected login handoff")
+        status, html, _ = await self._request("GET", login_page)
         if status != 200:
             raise AuthenticationFailed("Login page unavailable")
         self._challenge(html)
-        try:
-            form = parse_form(html, "/login/LeedsCC/Home")
-        except Exception as exc:
-            raise AuthenticationFailed("Login form unavailable") from exc
-        target = self._trusted(LOGIN_URL, form.action)
-        fields = {**form.fields, "email": email, "password": password}
-        status, html, location = await self._request("POST", target, fields)
-        await self._advance(target, status, html, location, visitor=False)
+        fields = {"email": email, "password": password}
+        status, html, location = await self._request("POST", LOGIN_URL, fields,
+            headers={"Origin": f"https://{LOGIN_HOST}", "Referer": login_page})
+        await self._advance(LOGIN_URL, status, html, location, visitor=False)
 
     async def _visitor(self) -> None:
         status, html, location = await self._request("GET", VISITOR_URL)

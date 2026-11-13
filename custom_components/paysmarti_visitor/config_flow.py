@@ -1,5 +1,7 @@
 """Account login, permit/street choice, reauthentication and options."""
 
+import logging
+
 import probatio as vol
 import aiohttp
 
@@ -12,6 +14,31 @@ from .auth import PaysmartiAuthenticator
 from .const import ALLOWED_HOSTS, DOMAIN
 from .discovery import discover_context
 from .models import AuthenticationFailed, DiscoveryChoiceRequired, InteractiveChallenge, UnexpectedPage, UnexpectedRedirect
+
+_LOGGER = logging.getLogger(__name__)
+# These messages are authored in auth.py. Never log an unknown exception
+# message: a future site or library error could contain private form data.
+_SAFE_AUTH_FAILURE_REASONS = frozenset({
+    "Ambiguous federation handoff",
+    "Authentication redirect has no target",
+    "Authentication request failed",
+    "Unexpected federation method",
+    "Login did not establish a session",
+    "Visitor session was not established",
+    "Visitor permit form unavailable",
+    "Authentication handoff exceeded redirect limit",
+    "Login handoff unavailable",
+    "Login page unavailable",
+    "Visitor handoff returned to login",
+    "Login required",
+})
+
+
+def _log_auth_failure(exc: AuthenticationFailed) -> None:
+    reason = str(exc)
+    if reason not in _SAFE_AUTH_FAILURE_REASONS:
+        reason = "Unclassified authentication failure"
+    _LOGGER.warning("Paysmarti authentication failed: %s", reason)
 
 _ACCOUNT = vol.Schema({
     vol.Required("email"): str,
@@ -80,7 +107,8 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._session = async_create_clientsession(self.hass)
         try:
             await PaysmartiAuthenticator(self._session, ALLOWED_HOSTS).login(*self._credentials)
-        except AuthenticationFailed:
+        except AuthenticationFailed as exc:
+            _log_auth_failure(exc)
             await self._close()
             return self.async_show_form(step_id="user", data_schema=_ACCOUNT, errors={"base": "invalid_auth"})
         except InteractiveChallenge:
@@ -123,7 +151,8 @@ class PaysmartiVisitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             await PaysmartiAuthenticator(session, ALLOWED_HOSTS).login(email, user_input["password"])
             await discover_context(session, entry.data["permit_label"], entry.data["street_label"])
-        except AuthenticationFailed:
+        except AuthenticationFailed as exc:
+            _log_auth_failure(exc)
             return self.async_show_form(step_id="reauth_confirm", data_schema=_ACCOUNT, errors={"base": "invalid_auth"})
         except InteractiveChallenge:
             return self.async_show_form(step_id="reauth_confirm", data_schema=_ACCOUNT, errors={"base": "login_challenge"})
