@@ -229,9 +229,26 @@ async def test_failed_handoff_logs_status_and_safe_stage_without_credentials(cap
 
     assert "HTTP 503" in caplog.text
     assert "account session" in caplog.text
+    assert "account handoff" in caplog.text
     assert "private-password" not in caplog.text
     assert "private response body" not in caplog.text
     assert "fresh-context" not in caplog.text
+
+
+@async_test
+async def test_initial_identity_failure_is_distinguished_from_later_handoff(caplog):
+    session = Session(
+        step("GET", ACCOUNT, status=302, location=LOGIN_PAGE),
+        step("GET", LOGIN_PAGE, status=500, body="private response body"),
+    )
+
+    with pytest.raises(AuthenticationFailed):
+        await PaysmartiAuthenticator(session, HOSTS).login("user@example.test", "private-password")
+
+    assert "initial login page" in caplog.text
+    assert "HTTP 500" in caplog.text
+    assert "private response body" not in caplog.text
+    assert "private-password" not in caplog.text
 
 
 @async_test

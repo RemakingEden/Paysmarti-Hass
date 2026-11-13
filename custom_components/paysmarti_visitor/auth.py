@@ -50,13 +50,22 @@ class PaysmartiAuthenticator:
             raise UnexpectedRedirect("Authentication target is outside the allowed HTTPS hosts")
         return url
 
-    async def _request(self, method: str, url: str, data: dict[str, str] | None = None, *, headers: dict[str, str] | None = None):
+    async def _request(self, method: str, url: str, data: dict[str, str] | None = None, *, headers: dict[str, str] | None = None, phase: str):
         url = self._trusted(url, url)
         async with self._session.request(method, url, data=data, headers=headers, allow_redirects=False, timeout=30) as response:
             if response.status != 200 and not 300 <= response.status < 400:
                 parts = urlsplit(url)
                 route = _SAFE_ROUTES.get((parts.hostname, parts.path), "other trusted route")
-                _LOGGER.warning("Paysmarti authentication %s %s returned HTTP %s", method, route, response.status)
+                if parts.hostname == LOGIN_HOST and parts.path == LOGIN_PAGE_PATH:
+                    jar = getattr(self._session, "cookie_jar", None)
+                    cookies = jar.filter_cookies(url) if jar is not None else {}
+                    _LOGGER.warning(
+                        "Paysmarti authentication %s %s %s returned HTTP %s (fedauth_cookie=%s, account_cookie=%s)",
+                        phase, method, route, response.status,
+                        "FedAuth" in cookies, "FedAuth-ARP-AZ-LeedsCC" in cookies,
+                    )
+                else:
+                    _LOGGER.warning("Paysmarti authentication %s %s %s returned HTTP %s", phase, method, route, response.status)
             return response.status, await response.text(), response.headers.get("Location")
 
     @staticmethod
@@ -87,7 +96,7 @@ class PaysmartiAuthenticator:
                 if visitor and target_parts.hostname == LOGIN_HOST and target_parts.path == urlsplit(LOGIN_URL).path:
                     raise _ExpiredSession
                 url = target
-                status, html, location = await self._request("GET", url)
+                status, html, location = await self._request("GET", url, phase="visitor handoff" if visitor else "account handoff")
                 continue
             if status != 200:
                 raise AuthenticationFailed("Authentication request failed")
@@ -99,7 +108,7 @@ class PaysmartiAuthenticator:
                     raise AuthenticationFailed("Unexpected federation method")
                 target = self._trusted(url, str(form.get("action", "")))
                 url = target
-                status, html, location = await self._request("POST", url, fields)
+                status, html, location = await self._request("POST", url, fields, phase="visitor handoff" if visitor else "account handoff")
                 continue
             if visitor and urlsplit(url).hostname == LOGIN_HOST and urlsplit(url).path == LOGIN_PAGE_PATH:
                 raise _ExpiredSession
@@ -125,7 +134,7 @@ class PaysmartiAuthenticator:
         # Establish the account session first. A fresh browser is redirected
         # from the account site to the login page, then federates to visitor.
         # /login/LeedsCC/Home is only the credential POST endpoint.
-        status, _, location = await self._request("GET", ACCOUNT_URL)
+        status, _, location = await self._request("GET", ACCOUNT_URL, phase="account entry")
         if not 300 <= status < 400 or not location:
             raise AuthenticationFailed("Login handoff unavailable")
         login_page = self._trusted(ACCOUNT_URL, location)
@@ -133,17 +142,17 @@ class PaysmartiAuthenticator:
         query = parse_qs(parts.query)
         if parts.hostname != LOGIN_HOST or parts.path != LOGIN_PAGE_PATH or query.get("wa") != ["wsignin1.0"] or not all(query.get(key) for key in ("wctx", "wreply", "wtrealm")):
             raise UnexpectedRedirect("Unexpected login handoff")
-        status, html, _ = await self._request("GET", login_page)
+        status, html, _ = await self._request("GET", login_page, phase="initial login page")
         if status != 200:
             raise AuthenticationFailed("Login page unavailable")
         self._challenge(html)
         fields = {"email": email, "password": password, "returnUrl": ""}
         status, html, location = await self._request("POST", LOGIN_URL, fields,
-            headers={"Origin": f"https://{LOGIN_HOST}", "Referer": login_page})
+            headers={"Origin": f"https://{LOGIN_HOST}", "Referer": login_page}, phase="credential submit")
         await self._advance(LOGIN_URL, status, html, location, visitor=False)
 
     async def _visitor(self) -> None:
-        status, html, location = await self._request("GET", VISITOR_URL)
+        status, html, location = await self._request("GET", VISITOR_URL, phase="visitor entry")
         await self._advance(VISITOR_URL, status, html, location, visitor=True)
 
     async def login(self, email: str, password: str) -> None:
