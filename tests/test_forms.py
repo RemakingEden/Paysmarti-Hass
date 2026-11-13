@@ -75,3 +75,12 @@ def test_does_not_pick_token_from_a_different_form() -> None:
         parse_form(html, "/LeedsCC/BookParking/StepOne")
 
     assert exc.value.code == "token_missing"
+
+
+def test_permit_selection_posts_to_step_one() -> None:
+    html = (FIXTURES / "permit.html").read_text()
+
+    form = parse_form(html, "/LeedsCC/BookParking/StepOne")
+
+    assert form.action == "/LeedsCC/BookParking/StepOne"
+    assert form.fields["__RequestVerificationToken"] == "fixture-token-permit"
