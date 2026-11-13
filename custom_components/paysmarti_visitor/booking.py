@@ -48,10 +48,12 @@ async def _page(session, method: str, url: str, fields: dict[str, str] | None = 
         return await response.text()
 
 
-def _single_option(html: str, field: str, expected_id: str, expected_label: str) -> None:
+def _current_option_id(html: str, field: str, expected_label: str) -> str:
     options = form_options(html, _STEP_ONE, field)
-    if sum(option == (expected_id, expected_label) for option in options) != 1:
+    matches = [option_id for option_id, label in options if label == expected_label]
+    if len(matches) != 1:
         raise UnexpectedPage(field, _STEP_ONE, code=f"{field}_changed")
+    return matches[0]
 
 
 def _permit_summary(html: str) -> str:
@@ -130,14 +132,14 @@ class PaysmartiBooker:
 
         permit_html = await _page(self._session, "GET", VISITOR_URL)
         permit_matches = [form for option, form in permit_forms(permit_html, _STEP_ONE)
-                          if (option.id, option.label) == (self._context.permit_id, self._context.permit_label)]
+                          if option.label == self._context.permit_label]
         if len(permit_matches) != 1:
             raise UnexpectedPage("permit", _STEP_ONE, code="permit_changed")
         permit_form = permit_matches[0]
         step_html = await _page(self._session, "POST", _trusted_action(permit_form.action, _STEP_ONE),
                                 permit_form.fields)
         step_form = parse_form(step_html, _STEP_ONE)
-        _single_option(step_html, "StreetSelected", self._context.street_id, self._context.street_label)
+        street_id = _current_option_id(step_html, "StreetSelected", self._context.street_label)
         if step_form.fields.get("VisitorSessionType") != "DAY":
             raise UnexpectedPage("booking", _STEP_ONE, code="session_changed")
         if new:
@@ -163,7 +165,7 @@ class PaysmartiBooker:
             "Vrm": new,
             "SaveThisVrm": str(bool(new and request.save)),
             "VehicleKnownAs": (request.nickname or "").strip() if new and request.save else "",
-            "StreetSelected": self._context.street_id,
+            "StreetSelected": street_id,
             "VisitorSessionType": "DAY",
             "ParkMultipleVehicles": "False",
             "StartParkingNow": "True",

@@ -182,3 +182,45 @@ def test_prepare_rejects_changed_step_two_summary(old, new):
     with pytest.raises(UnexpectedPage):
         prepare(session, BookingInput("fixture-vehicle", None))
     assert len(session.calls) == 3
+
+
+def test_prepare_rebinds_current_permit_and_street_ids_by_labels():
+    permit = PERMIT.replace('name="SelectedPermit" value="fixture-permit"', 'name="SelectedPermit" value="new-permit"')
+    step = STEP.replace('Value="fixture-street"', 'Value="new-street"')
+    summary = SUMMARY.replace('name="StreetSelected" value="fixture-street"', 'name="StreetSelected" value="new-street"')
+    session = Session(permit, step, summary)
+
+    result = prepare(session, BookingInput("fixture-vehicle", None))
+
+    assert session.calls[1][2]["SelectedPermit"] == "new-permit"
+    assert session.calls[2][2]["StreetSelected"] == "new-street"
+    assert result.street == "Fixture Street"
+    assert result.permit == "Fixture Visitor Permit"
+
+
+@pytest.mark.parametrize("permit,expected_code", [
+    (PERMIT.replace('<p>Visitor</p>', '<p>Other</p>'), "permit_changed"),
+    (PERMIT.replace('</tbody>', '''<tr class="Display"><td class="mobile-list-description">
+    <p>Fixture</p><p>Visitor</p><p>Permit</p></td><td class="list-button">
+    <form method="post" action="/LeedsCC/BookParking/StepOne">
+    <input type="hidden" name="SelectedPermit" value="other-permit" />
+    <input type="hidden" name="__RequestVerificationToken" value="other-token" />
+    </form></td></tr></tbody>'''), "permit_changed"),
+])
+def test_prepare_rejects_missing_or_ambiguous_permit_label_before_post(permit, expected_code):
+    session = Session(permit)
+    with pytest.raises(UnexpectedPage) as error:
+        prepare(session, BookingInput("fixture-vehicle", None))
+    assert error.value.code == expected_code
+    assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize("step", [
+    STEP.replace('<span>Fixture Street</span>', '<span>Other Street</span>'),
+    STEP.replace('<span>Fixture Street</span>', '<span>Fixture Street</span><span>Other Street</span>'),
+])
+def test_prepare_rejects_missing_or_ambiguous_street_label_before_booking_post(step):
+    session = Session(PERMIT, step)
+    with pytest.raises(UnexpectedPage):
+        prepare(session, BookingInput("fixture-vehicle", None))
+    assert len(session.calls) == 2
