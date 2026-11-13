@@ -356,7 +356,7 @@ def test_commit_concurrent_copy_cannot_post_twice():
     asyncio.run(scenario())
 
 
-def test_commit_cancellation_after_post_starts_preserves_cancellation_and_blocks_retry():
+def test_commit_cancellation_after_post_starts_is_unknown_and_blocks_retry():
     entered, release = asyncio.Event(), asyncio.Event()
     booker, prepared, session = commit_session(
         BlockingResponse("", 302, {"Location": "/LeedsCC/BookParkingSuccess"}, entered, release),
@@ -366,7 +366,7 @@ def test_commit_cancellation_after_post_starts_preserves_cancellation_and_blocks
         first = asyncio.create_task(booker.commit(prepared))
         await entered.wait()
         first.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(OutcomeUnknown):
             await first
         with pytest.raises(OutcomeUnknown):
             await PaysmartiBooker(session, CONTEXT).commit(replace(prepared))

@@ -1,5 +1,6 @@
 """Prepare a visitor booking and confirm it with one final POST."""
 
+import asyncio
 import re
 from datetime import datetime, timedelta, time
 from urllib.parse import urljoin, urlsplit
@@ -160,7 +161,7 @@ class PaysmartiBooker:
             raise BookingRejected("Prepared booking cannot be submitted") from exc
 
         # This gate is shared by dataclass copies and checked before the first await.
-        # Cancellation leaves it set: the caller's commit_started journal stays unknown.
+        # Once set, cancellation is classified as unknown and cannot cause a resend.
         prepared._commit_gate.started = True
         try:
             async with self._session.request(
@@ -178,6 +179,8 @@ class PaysmartiBooker:
                 if response.status != 200:
                     raise ValueError("Success page unavailable")
                 return _success_receipt(await response.text(), prepared)
+        except asyncio.CancelledError as exc:
+            raise OutcomeUnknown("Final booking was interrupted and could not be verified") from exc
         except Exception as exc:
             raise OutcomeUnknown("Final booking result could not be verified") from exc
 
