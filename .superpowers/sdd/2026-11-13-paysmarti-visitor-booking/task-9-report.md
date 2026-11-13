@@ -24,3 +24,11 @@
 - Replace the `OWNER` placeholder with the published public GitHub owner before Marketplace custom-repository installation. A tagged public repository is needed for the user's server installation; neither publication nor server installation was performed here.
 - No live Paysmarti booking was made. The browser smoke check was a jsdom dashboard fixture rather than a running Home Assistant dashboard.
 - If a failed action has no new journal result, the card shows amber uncertainty instead of treating an earlier success as the new attempt. The user should check Paysmarti before retrying.
+
+## Follow-up review fix
+
+A review found two card races. Added tests that first failed for each: a successful booking A followed by a rejected booking B replayed A's green result, and a delayed initial `get_last_result` allowed Book before restoration completed. The card now snapshots `get_last_result` immediately before every booking, compares the post-error journal result with that baseline, and shows amber uncertainty when the journal has not changed or cannot prove a new attempt. Initial restore keeps Book disabled until both startup reads finish.
+
+A third failing regression covered switching `config_entry_id` while the old saved-list request is pending. The card now clears entry-specific form state and ignores late responses from the previous entry, including pending booking responses.
+
+Fresh verification after the fix: `node --check custom_components/paysmarti_visitor/frontend/paysmarti-visitor-card.js` passed; `git diff --check` passed; `npm test` passed 12/12; `.venv-ha/bin/pytest tests/test_frontend_resource.py -q` passed 1/1; `.venv-ha/bin/pytest -q` passed 148/148 with one upstream aiohttp deprecation warning. No live requests or bookings were made.

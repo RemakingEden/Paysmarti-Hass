@@ -71,6 +71,7 @@ test('pending booking locks Book and Refresh', async () => {
   assert.equal(root.querySelector('#book').disabled, true);
   assert.equal(root.querySelector('#refresh').disabled, true);
   assert.match(root.querySelector('[role="status"]').textContent, /Booking in progress/);
+  await flush();
   release({response:{registration:'BB00BBB',starts_at:'2026-11-13T10:00:00+00:00',ends_at:'2026-11-13T23:59:00+00:00'}});
   await flush();
 });
@@ -82,18 +83,22 @@ test('confirmed booking shows green receipt and clears new text', async () => {
   assert.equal(root.querySelector('#new').value, '');
 });
 test('known pre-commit failure shows red result and keeps entered text', async () => {
-  responses.book_visitor = () => Promise.reject(new Error('form_changed'));
   const root = await open();
-  responses.get_last_result = {status:'not_booked',masked_registration:'****BBB',safe_details:{stage:'preparation',error_code:'form_changed'}};
+  responses.book_visitor = () => {
+    responses.get_last_result = {status:'not_booked',masked_registration:'****BBB',safe_details:{stage:'preparation',error_code:'form_changed'}};
+    return Promise.reject(new Error('form_changed'));
+  };
   change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
   assert.equal(root.querySelector('#result').dataset.kind, 'not_booked');
   assert.match(root.querySelector('#result').textContent, /Not booked/);
   assert.equal(root.querySelector('#new').value, 'BB00BBB');
 });
 test('ambiguous failure shows amber instruction to check Paysmarti', async () => {
-  responses.book_visitor = () => Promise.reject(new Error('outcome_unknown'));
   const root = await open();
-  responses.get_last_result = {status:'outcome_unknown',masked_registration:'****BBB',safe_details:{stage:'commit',error_code:'outcome_unknown'}};
+  responses.book_visitor = () => {
+    responses.get_last_result = {status:'outcome_unknown',masked_registration:'****BBB',safe_details:{stage:'commit',error_code:'outcome_unknown'}};
+    return Promise.reject(new Error('outcome_unknown'));
+  };
   change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
   assert.equal(root.querySelector('#result').dataset.kind, 'outcome_unknown');
   assert.match(root.querySelector('#result').textContent, /check Paysmarti before trying again/i);
@@ -110,4 +115,39 @@ test('a rejected booking does not replay an older green result', async () => {
   const root = await open();
   change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
   assert.equal(root.querySelector('#result').dataset.kind, 'outcome_unknown');
+});
+test('booking B rejection cannot display booking A confirmed result', async () => {
+  const root = await open();
+  const prior = {status:'booked',started_at:'2026-11-13T10:00:00+00:00',masked_registration:'****AAA',safe_details:{starts_at:'2026-11-13T10:00:00+00:00',ends_at:'2026-11-13T23:59:00+00:00'}};
+  change('#new','AA00AAA'); root.querySelector('#book').click(); await flush(); await flush();
+  assert.equal(root.querySelector('#result').dataset.kind, 'booked');
+  responses.get_last_result = prior;
+  responses.book_visitor = () => Promise.reject(new Error('entry_unavailable'));
+  change('#new','BB00BBB'); root.querySelector('#book').click(); await flush(); await flush();
+  assert.notEqual(root.querySelector('#result').dataset.kind, 'booked');
+});
+test('initial restore gates booking so a late prior result cannot overwrite a new booking', async () => {
+  let release;
+  responses.get_last_result = () => new Promise(resolve => {release = resolve;});
+  const root = await open();
+  change('#new','BB00BBB');
+  assert.equal(root.querySelector('#book').disabled, true);
+  release({response:{status:'booked',started_at:'2026-11-12T10:00:00+00:00',masked_registration:'****AAA',safe_details:{starts_at:'2026-11-12T10:00:00+00:00',ends_at:'2026-11-12T23:59:00+00:00'}}});
+  await flush();
+  responses.get_last_result = {status:'booked',started_at:'2026-11-12T10:00:00+00:00',masked_registration:'****AAA',safe_details:{starts_at:'2026-11-12T10:00:00+00:00',ends_at:'2026-11-12T23:59:00+00:00'}};
+  assert.equal(root.querySelector('#book').disabled, false);
+  root.querySelector('#book').click(); await flush(); await flush();
+  assert.match(root.querySelector('#result').textContent, /BB00BBB/);
+});
+test('switching config entry ignores late choices from the previous entry', async () => {
+  let releaseOld;
+  responses.list_saved_registrations = request => request.service_data.config_entry_id === 'entry-one'
+    ? new Promise(resolve => {releaseOld = resolve;})
+    : {response:{vehicles:[{id:'two',registration:'CC00CCC',label:'CC00CCC (Second)'}],can_save_new:false}};
+  const root = await open();
+  card.setConfig({config_entry_id:'entry-two'});
+  await flush(); await flush();
+  releaseOld({response:list}); await flush();
+  assert.match(root.querySelector('#saved').textContent, /CC00CCC/);
+  assert.doesNotMatch(root.querySelector('#saved').textContent, /AA00AAA/);
 });

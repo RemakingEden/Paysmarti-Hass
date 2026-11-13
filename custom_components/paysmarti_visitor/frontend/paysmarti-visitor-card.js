@@ -9,9 +9,11 @@
       super();
       this.attachShadow({mode: 'open'});
       this._busy = false;
+      this._loadingInitial = false;
       this._canSave = false;
       this._vehicles = [];
       this._loadedFor = null;
+      this._generation = 0;
       this._render();
     }
 
@@ -19,8 +21,22 @@
       if (!config?.config_entry_id || typeof config.config_entry_id !== 'string') {
         throw new Error('Paysmarti Visitor card requires config_entry_id');
       }
+      if (this._entryId === config.config_entry_id) return;
       this._entryId = config.config_entry_id;
+      this._generation += 1;
       this._loadedFor = null;
+      this._busy = false;
+      this._loadingInitial = true;
+      this._canSave = false;
+      this._vehicles = [];
+      this._lastBackendResult = null;
+      this._saved.replaceChildren(new Option('Choose saved registration', ''));
+      this._new.value = '';
+      this._save.checked = false;
+      this._nickname.value = '';
+      this._listError.textContent = '';
+      this._showResult({status: 'none'});
+      this._update();
       this._load();
     }
 
@@ -42,15 +58,22 @@
     async _load() {
       if (!this._entryId || !this._hass || this._loadedFor === this._entryId) return;
       this._loadedFor = this._entryId;
-      await Promise.all([this._refresh(), this._restore()]);
+      const generation = this._generation;
+      this._loadingInitial = true;
+      this._update();
+      await Promise.all([this._refresh(generation), this._restore(generation)]);
+      if (generation !== this._generation) return;
+      this._loadingInitial = false;
+      this._update();
     }
 
-    async _refresh() {
-      if (!this._hass || this._busy) return;
+    async _refresh(generation = this._generation) {
+      if (!this._hass || this._busy || generation !== this._generation) return;
       this._busy = true;
       this._update();
       try {
         const data = await this._action('list_saved_registrations');
+        if (generation !== this._generation) return;
         this._vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
         this._canSave = data?.can_save_new === true;
         const selected = this._saved.value;
@@ -61,37 +84,50 @@
         if (this._vehicles.some(vehicle => vehicle.id === selected)) this._saved.value = selected;
         this._listError.textContent = '';
       } catch (_error) {
+        if (generation !== this._generation) return;
         this._listError.textContent = 'Saved registrations could not be loaded. Select Refresh to try again.';
       } finally {
-        this._busy = false;
-        this._update();
+        if (generation === this._generation) {
+          this._busy = false;
+          this._update();
+        }
       }
     }
 
-    async _restore() {
+    async _restore(generation = this._generation) {
       try {
         const latest = await this._action('get_last_result');
+        if (generation !== this._generation) return;
         this._lastBackendResult = JSON.stringify(latest);
         this._showResult(latest);
       } catch (_error) {
-        this._showResult({status: 'outcome_unknown'});
+        if (generation === this._generation) this._showResult({status: 'outcome_unknown'});
       }
     }
 
     async _book() {
-      if (this._busy || this._bookButton.disabled) return;
+      if (this._busy || this._loadingInitial || this._bookButton.disabled) return;
+      const generation = this._generation;
       const registration = normalized(this._new.value);
       const selected = this._saved.value;
       const data = registration
         ? {new_registration: registration, save: this._canSave && this._save.checked}
         : {saved_vehicle_id: selected};
       if (data.save && this._nickname.value.trim()) data.nickname = this._nickname.value.trim();
-      const previousResult = this._lastBackendResult;
       this._busy = true;
       this._showResult({status: 'preparing'});
       this._update();
+      // Snapshot the journal immediately before submission, including after a prior success.
+      let previousResult = null;
+      try {
+        previousResult = JSON.stringify(await this._action('get_last_result'));
+      } catch (_error) {
+        // Without a baseline, a later journal read cannot prove which attempt it belongs to.
+      }
+      if (generation !== this._generation) return;
       try {
         const receipt = await this._action('book_visitor', data);
+        if (generation !== this._generation) return;
         this._showResult({status: 'booked', registration: receipt.registration,
           safe_details: {starts_at: receipt.starts_at, ends_at: receipt.ends_at},
           reference: receipt.reference, refresh_warning: receipt.refresh_warning});
@@ -99,19 +135,24 @@
         this._save.checked = false;
         this._nickname.value = '';
       } catch (_error) {
+        if (generation !== this._generation) return;
         // The journal is authoritative: an exception alone cannot identify the POST boundary.
         try {
           const latest = await this._action('get_last_result');
+          if (generation !== this._generation) return;
           this._lastBackendResult = JSON.stringify(latest);
-          this._showResult(latest?.status === 'none' || this._lastBackendResult === previousResult
+          this._showResult(latest?.status === 'none' || previousResult === null || this._lastBackendResult === previousResult
             ? {status: 'outcome_unknown'} : latest);
         } catch (_restoreError) {
-          this._showResult({status: 'outcome_unknown'});
+          if (generation === this._generation) this._showResult({status: 'outcome_unknown'});
         }
       } finally {
-        this._busy = false;
-        this._update();
+        if (generation === this._generation) {
+          this._busy = false;
+          this._update();
+        }
       }
+      if (generation !== this._generation) return;
       if (data.save && this._result.dataset.kind === 'booked') await this._refresh();
     }
 
@@ -161,7 +202,7 @@
       }
       this._nicknameRow.hidden = this._saveRow.hidden || !this._save.checked;
       if (this._nicknameRow.hidden) this._nickname.value = '';
-      this._bookButton.disabled = this._busy || !valid || !effective;
+      this._bookButton.disabled = this._busy || this._loadingInitial || !valid || !effective;
       this._refreshButton.disabled = this._busy;
       this._saved.disabled = this._busy;
       this._new.disabled = this._busy;
